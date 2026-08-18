@@ -318,3 +318,20 @@
 .prose { max-width: 68ch; }
 .prose p { margin-bottom: 1rem; color: var(--ink); }
 .prose h2 { font-family: var(--serif); font-weight: 500; font-size: clamp(1.6rem, 3vw, 2.2rem); margin: 1.6rem 0 .6rem; }
+
+/* ------- Cart customer fields + sold-out sizes (back-office era) ------- */
+.cart__fields { display: grid; gap: .5rem; margin: .2rem 0 .85rem; }
+.cart__fields input {
+  width: 100%; font: inherit; font-weight: 300; color: var(--ink);
+  background: #fff; border: 1px solid var(--sand); border-radius: 2px;
+  padding: .58rem .75rem; min-height: 42px;
+  transition: border-color .2s var(--ease);
+}
+.cart__fields input:focus { outline: none; border-color: var(--wine); }
+.cart__fields input::placeholder { color: var(--ink-soft); }
+
+.size-opt.is-out,
+.size-opt[disabled] {
+  opacity: .38; cursor: not-allowed; text-decoration: line-through;
+}
+.size-opt.is-out:hover { border-color: var(--sand); color: var(--ink-soft); }

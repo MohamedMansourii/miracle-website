@@ -1,2 +1,6 @@
 .claude/
 AppData/
+
+.vercel
+.env*
+node_modules/

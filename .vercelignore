@@ -1,0 +1,8 @@
+.claude
+AppData
+.git
+.gitignore
+.env*
+.vercel
+node_modules
+.design

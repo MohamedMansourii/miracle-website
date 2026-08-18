@@ -13,6 +13,10 @@
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var WA_NUMBER = "21692970596";
   var IG = "https://www.instagram.com/miracle_collection_feminine/";
+  /* Back office API — same origin on Vercel; absolute for the GitHub Pages
+     mirror. If the API is unreachable (e.g. plain local server), the site
+     falls back to the built-in catalog below. */
+  var API_BASE = /github\.io$/.test(location.hostname) ? "https://miracle-website-eta.vercel.app" : "";
 
   /* ------------------------------------------------------------------ */
   /* 1. DATA                                                            */
@@ -254,11 +258,59 @@
     var tot = document.getElementById("cart-total"); if(tot) tot.textContent = money(cartTotal());
     var wa = document.getElementById("cart-wa");
     if(wa){
+      var cust = getCustomer();
+      var extra = [];
+      if(cust.name) extra.push("Nom : "+cust.name);
+      if(cust.phone) extra.push("Tél : "+cust.phone);
+      if(cust.city) extra.push("Ville : "+cust.city);
       var msg = "Bonjour MIRACLE 🌸, je souhaite commander :\n" + cart.map(function(i){
         var p=byId(i.id); return "• "+p.title+" ("+p.color+(i.size?", taille "+i.size:"")+") ×"+i.qty;
-      }).join("\n") + "\nTotal indicatif : " + money(cartTotal());
+      }).join("\n") + "\nTotal indicatif : " + money(cartTotal())
+      + (extra.length ? "\n" + extra.join(" · ") : "");
       wa.href = waLink(msg);
     }
+  }
+
+  /* Customer details (optional, kept on this device only) -------------- */
+  var CUST_KEY = "miracle_cust_v1";
+  function getCustomer(){
+    try { return JSON.parse(localStorage.getItem(CUST_KEY)) || {}; } catch(e){ return {}; }
+  }
+  function bindCustomerFields(){
+    var map = { "cart-name":"name", "cart-phone":"phone", "cart-city":"city" };
+    var cust = getCustomer();
+    Object.keys(map).forEach(function(id){
+      var input = document.getElementById(id); if(!input) return;
+      if(cust[map[id]]) input.value = cust[map[id]];
+      input.addEventListener("input", function(){
+        var c = getCustomer(); c[map[id]] = this.value.trim();
+        try { localStorage.setItem(CUST_KEY, JSON.stringify(c)); } catch(e){}
+        syncCartUI();
+      });
+    });
+  }
+
+  /* Record the order in the boutique's back office (fire-and-forget).
+     The WhatsApp conversation stays the real confirmation channel. */
+  var ORDER_SIG_KEY = "miracle_last_order";
+  function recordOrder(){
+    if(!cart.length) return;
+    var sig = JSON.stringify(cart);
+    try {
+      var last = JSON.parse(sessionStorage.getItem(ORDER_SIG_KEY) || "null");
+      if(last && last.sig === sig && Date.now() - last.at < 10*60*1000) return; // double-click guard
+      sessionStorage.setItem(ORDER_SIG_KEY, JSON.stringify({ sig: sig, at: Date.now() }));
+    } catch(e){}
+    var payload = {
+      items: cart.map(function(i){ return { id:i.id, size:i.size, qty:i.qty }; }),
+      customer: getCustomer()
+    };
+    try {
+      fetch(API_BASE + "/api/orders", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload), keepalive: true
+      }).catch(function(){});
+    } catch(e){}
   }
 
   /* Drawer / overlay helpers ---------------------------------------- */
@@ -365,6 +417,11 @@
       + '<div class="cart__body" id="cart-body"></div>'
       + '<div class="cart__foot" id="cart-foot" hidden>'
       + '<div class="cart__row"><span>Total indicatif</span><strong id="cart-total">0 DT</strong></div>'
+      + '<div class="cart__fields">'
+      + '<input id="cart-name" autocomplete="name" placeholder="Votre nom (optionnel)" aria-label="Votre nom">'
+      + '<input id="cart-phone" type="tel" autocomplete="tel" placeholder="Téléphone (optionnel)" aria-label="Téléphone">'
+      + '<input id="cart-city" autocomplete="address-level2" placeholder="Ville (optionnel)" aria-label="Ville">'
+      + '</div>'
       + '<p class="cart__note">Paiement à la livraison · écrin cadeau offert. La commande se confirme sur WhatsApp.</p>'
       + '<a class="btn btn--block" id="cart-wa" target="_blank" rel="noopener">Commander sur WhatsApp</a>'
       + '<button class="cart__continue" data-close>Continuer mes achats</button></div>'
@@ -389,6 +446,9 @@
     });
     // close nav-drawer on link click
     document.querySelector("#nav-drawer").addEventListener("click", function(e){ if(e.target.tagName==="A") closeAll(); });
+    // record the order in the back office when checkout opens WhatsApp
+    document.getElementById("cart-wa").addEventListener("click", recordOrder);
+    bindCustomerFields();
   }
 
   function renderFooter(){
@@ -573,7 +633,12 @@
     var p = byId(qs("id")) || PRODUCTS[0];
     document.title = p.title+" "+p.color+" — MIRACLE";
     var gallery = p.gallery && p.gallery.length ? p.gallery : [p.img];
-    var sizes = p.sizes.map(function(s){ return '<button class="size-opt" data-size="'+esc(s)+'">'+esc(s)+'</button>'; }).join("");
+    var sizes = p.sizes.map(function(s){
+      var out = p.stock && (s in p.stock) && p.stock[s] <= 0;
+      return '<button class="size-opt'+(out?' is-out':'')+'" data-size="'+esc(s)+'"'
+        + (out ? ' disabled aria-disabled="true" title="Épuisé — bientôt de retour"' : '')
+        + '>'+esc(s)+'</button>';
+    }).join("");
     var related = PRODUCTS.filter(function(x){ return x.id!==p.id && x.cats.some(function(c){return p.cats.indexOf(c)>-1;}); }).slice(0,4);
     root.innerHTML =
       '<div class="wrap"><nav class="crumbs"><a href="index.html">Accueil</a> / <a href="collections.html?cat='+p.cats[0]+'">'+esc((CAT_META[p.cats[0]]||{title:"Collection"}).title)+'</a> / <span>'+esc(p.title)+'</span></nav></div>'
@@ -650,8 +715,68 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* 9. BOOT                                                            */
+  /* 8b. JOURNAL — dynamic articles from the back office                */
   /* ------------------------------------------------------------------ */
+  function initJournal(){
+    if(document.body.getAttribute("data-page")!=="journal") return;
+    var grid = document.querySelector(".journal-grid"); if(!grid) return;
+    fetch(API_BASE + "/api/journal").then(function(r){ if(!r.ok) throw 0; return r.json(); })
+      .then(function(j){
+        var arts = j && j.articles;
+        if(!arts || !arts.length) return; // keep the static cards as fallback
+        grid.innerHTML = arts.map(function(a){
+          var href = a.href || "journal.html";
+          return '<article class="jcard">'
+            + '<a class="jcard__media" href="'+href+'">'
+            + (a.img ? '<img src="'+a.img+'" alt="'+esc(a.title)+'" loading="lazy">' : '')
+            + '</a>'
+            + '<p class="jcard__tag">'+esc(a.tag)+'</p>'
+            + '<a class="jcard__title" href="'+href+'">'+esc(a.title)+'</a>'
+            + '<p class="jcard__excerpt">'+esc(a.excerpt)+'</p>'
+            + '</article>';
+        }).join("");
+      }).catch(function(){});
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 9. BOOT — load the live catalog first, fall back to the built-in   */
+  /* ------------------------------------------------------------------ */
+  var CATALOG_KEY = "miracle_catalog_v1";
+  function applyCatalog(list){
+    if(!list || !list.length) return;
+    PRODUCTS.length = 0;
+    list.forEach(function(p){ PRODUCTS.push(p); });
+  }
+  function fetchCatalog(){
+    return fetch(API_BASE + "/api/products", { cache: "no-store" })
+      .then(function(r){ if(!r.ok) throw 0; return r.json(); })
+      .then(function(j){
+        if(j && j.products && j.products.length){
+          try { sessionStorage.setItem(CATALOG_KEY, JSON.stringify({ at: Date.now(), products: j.products })); } catch(e){}
+          return j.products;
+        }
+        throw 0;
+      });
+  }
+  function loadCatalog(){
+    // A fresh session copy makes every page after the first instant;
+    // it is refreshed in the background on each page view.
+    var cached = null;
+    try { cached = JSON.parse(sessionStorage.getItem(CATALOG_KEY)); } catch(e){}
+    if(cached && cached.products && cached.products.length){
+      applyCatalog(cached.products);
+      fetchCatalog().catch(function(){}); // refresh for the next page
+      return Promise.resolve();
+    }
+    return new Promise(function(resolve){
+      var done = false;
+      var t = setTimeout(function(){ if(!done){ done = true; resolve(); } }, 8000);
+      fetchCatalog()
+        .then(applyCatalog)
+        .catch(function(){})
+        .then(function(){ clearTimeout(t); if(!done){ done = true; resolve(); } });
+    });
+  }
   function boot(){
     renderHeader();
     renderChrome();
@@ -660,6 +785,7 @@
     initPLP();
     initPDP();
     initHomeCarousel();
+    initJournal();
     initAccordions();
     initTesti();
     initReveal();
@@ -668,5 +794,6 @@
     // expose a tiny API for inline page needs
     window.MIRACLE = { addToCart:addToCart, products:PRODUCTS, card:cardHTML, openCart:openCart, waLink:waLink };
   }
-  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+  function start(){ loadCatalog().then(boot); }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();

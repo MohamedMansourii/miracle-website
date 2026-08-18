@@ -1,0 +1,9 @@
+{
+  "name": "miracle-website",
+  "version": "2.0.0",
+  "private": true,
+  "description": "MIRACLE — lingerie faite main a Monastir. Static site + Vercel functions back office.",
+  "dependencies": {
+    "@vercel/blob": "^0.27.3"
+  }
+}
