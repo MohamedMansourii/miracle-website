@@ -1,7 +1,8 @@
 /* =====================================================================
    MIRACLE — module Tableau de bord (dashboard.js)
-   KPIs, CA 6 derniers mois, stock faible, dernières commandes,
-   pièces les plus commandées. Voir .design/ADMIN-CONTRACT.md.
+   Converty-style KPIs (jour/semaine/mois/CA total hero), suivi
+   livraisons, commandes des 10 derniers jours, trafic des commandes
+   (donut), stock faible, dernières commandes. Voir .design/ADMIN-CONTRACT.md.
    ===================================================================== */
 (function () {
   "use strict";
@@ -26,11 +27,12 @@
     return sourceLabel(o.source);
   }
   function num(n) { var v = Number(n); return isNaN(v) ? 0 : v; }
-  function isInMonth(iso, y, m) {
+  function dayKey(iso) {
     var d = new Date(iso);
-    if (isNaN(d)) return false;
-    return d.getFullYear() === y && d.getMonth() === m;
+    if (isNaN(d)) return null;
+    return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
   }
+  function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 
   /* sizes of a product's stock object, ordered by product.sizes when possible */
   function stockSizes(p) {
@@ -46,75 +48,176 @@
   /* ---------------- KPI row ---------------- */
   function buildKpis(orders) {
     var now = new Date();
-    var curY = now.getFullYear(), curM = now.getMonth();
+    var today0 = startOfDay(now);
+    var week0 = new Date(today0); week0.setDate(week0.getDate() - 6);
+    var month0 = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    var caMonth = 0, enCours = 0, commandesMonth = 0, livreeMonthSum = 0, livreeMonthCount = 0, aTraiter = 0;
+    var todaySum = 0, todayCount = 0;
+    var weekSum = 0, weekCount = 0;
+    var monthSum = 0, monthCount = 0;
+    var heroSum = 0, heroCount = 0;
 
     orders.forEach(function (o) {
       var total = num(o.total);
-      var inMonth = isInMonth(o.createdAt, curY, curM);
+      var d = new Date(o.createdAt);
+      var okDate = !isNaN(d);
 
-      if (o.status === "livree" && inMonth) {
-        caMonth += total;
-        livreeMonthSum += total;
-        livreeMonthCount++;
+      if (o.status === "livree") { heroSum += total; heroCount++; }
+
+      if (o.status !== "annulee" && okDate) {
+        if (d >= today0) { todaySum += total; todayCount++; }
+        if (d >= week0) { weekSum += total; weekCount++; }
+        if (d >= month0) { monthSum += total; monthCount++; }
       }
-      if (o.status === "confirmee" || o.status === "en_preparation" || o.status === "expediee") {
-        enCours += total;
-      }
-      if (inMonth) commandesMonth++;
-      if (o.status === "nouvelle") aTraiter++;
     });
 
-    var panierMoyen = livreeMonthCount ? (livreeMonthSum / livreeMonthCount) : 0;
+    function plural(n) { return n + " commande" + (n === 1 ? "" : "s"); }
 
     return (
       '<div class="a-kpis">' +
-      '<div class="a-kpi a-kpi--wine"><div class="a-kpi__num">' + ADMIN.money(caMonth) + '</div><div class="a-kpi__lbl">CA du mois</div></div>' +
-      '<div class="a-kpi"><div class="a-kpi__num">' + ADMIN.money(enCours) + '</div><div class="a-kpi__lbl">En cours</div></div>' +
-      '<div class="a-kpi"><div class="a-kpi__num">' + commandesMonth + '</div><div class="a-kpi__lbl">Commandes du mois</div></div>' +
-      '<div class="a-kpi"><div class="a-kpi__num">' + ADMIN.money(panierMoyen) + '</div><div class="a-kpi__lbl">Panier moyen</div></div>' +
-      '<div class="a-kpi"><div class="a-kpi__num">' + aTraiter + '</div><div class="a-kpi__lbl">À traiter</div></div>' +
+      '<div class="a-kpi"><div class="a-kpi__num">' + ADMIN.money(todaySum) + '</div>' +
+      '<div class="a-kpi__lbl">Commandes aujourd’hui</div>' +
+      '<div class="a-kpi__sub">' + plural(todayCount) + '</div></div>' +
+
+      '<div class="a-kpi"><div class="a-kpi__num">' + ADMIN.money(weekSum) + '</div>' +
+      '<div class="a-kpi__lbl">Cette semaine</div>' +
+      '<div class="a-kpi__sub">' + plural(weekCount) + '</div></div>' +
+
+      '<div class="a-kpi"><div class="a-kpi__num">' + ADMIN.money(monthSum) + '</div>' +
+      '<div class="a-kpi__lbl">Ce mois-ci</div>' +
+      '<div class="a-kpi__sub">' + plural(monthCount) + '</div></div>' +
+
+      '<div class="a-kpi a-kpi--hero"><div class="a-kpi__num">' + ADMIN.money(heroSum) + '</div>' +
+      '<div class="a-kpi__lbl">Revenus totaux</div>' +
+      '<div class="a-kpi__sub">' + heroCount + ' commande' + (heroCount === 1 ? "" : "s") + ' livrée' + (heroCount === 1 ? "" : "s") + '</div></div>' +
       '</div>'
     );
   }
 
-  /* ---------------- CA 6 derniers mois ---------------- */
-  function buildChart(orders) {
-    var now = new Date();
-    var curY = now.getFullYear(), curM = now.getMonth();
+  /* ---------------- Suivi de commande (livrées vs retours) ---------------- */
+  function buildTrackingCard(orders) {
+    var livree = 0, retour = 0;
+    orders.forEach(function (o) {
+      if (o.status === "livree") livree++;
+      else if (o.status === "retour") retour++;
+    });
+    var total = livree + retour;
 
-    var months = [];
-    for (var i = 5; i >= 0; i--) {
-      var d = new Date(curY, curM - i, 1);
-      months.push({ y: d.getFullYear(), m: d.getMonth(), label: d.toLocaleDateString("fr-FR", { month: "short" }) });
+    var body;
+    if (!total) {
+      body = '<div class="a-empty">Aucune donnée disponible pour le moment.</div>';
+    } else {
+      var pctLivree = Math.round((livree / total) * 100);
+      var pctRetour = 100 - pctLivree;
+      var segs = "";
+      if (pctLivree > 0) segs += '<span class="a-track__seg a-track__seg--ok" style="--w:' + pctLivree + '">' + pctLivree + '%</span>';
+      if (pctRetour > 0) segs += '<span class="a-track__seg a-track__seg--warn" style="--w:' + pctRetour + '">' + pctRetour + '%</span>';
+      body =
+        '<p style="margin-bottom:.7rem;font-size:.84rem">' +
+        '<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--ok);margin-right:.4rem;vertical-align:-1px"></span>Livrées ' + pctLivree + '%' +
+        '<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--rose);margin:0 .4rem 0 1.1rem;vertical-align:-1px"></span>Retournées ' + pctRetour + '%' +
+        '</p>' +
+        '<div class="a-track">' + segs + '</div>';
     }
 
-    var sums = months.map(function (mo) {
-      var sum = 0;
-      orders.forEach(function (o) {
-        if (o.status !== "livree") return;
-        if (isInMonth(o.createdAt, mo.y, mo.m)) sum += num(o.total);
-      });
-      return sum;
+    return (
+      '<div class="a-card">' +
+      '<div class="a-card__head"><h2 class="a-title">Suivi de commande</h2></div>' +
+      body +
+      '</div>'
+    );
+  }
+
+  /* ---------------- Commandes — 10 derniers jours ---------------- */
+  function buildLast10DaysCard(orders) {
+    var now = new Date();
+    var today0 = startOfDay(now);
+    var days = [];
+    for (var i = 9; i >= 0; i--) {
+      var d = new Date(today0); d.setDate(d.getDate() - i);
+      days.push({ key: d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate(),
+        label: d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) });
+    }
+
+    var counts = {};
+    orders.forEach(function (o) {
+      var k = dayKey(o.createdAt);
+      if (k) counts[k] = (counts[k] || 0) + 1;
     });
 
-    var maxSum = 0;
-    sums.forEach(function (s) { if (s > maxSum) maxSum = s; });
+    var maxCount = 0;
+    days.forEach(function (dy) { var c = counts[dy.key] || 0; if (c > maxCount) maxCount = c; });
 
-    var bars = months.map(function (mo, idx) {
-      var h = maxSum ? Math.round((sums[idx] / maxSum) * 100) : 0;
+    var bars = days.map(function (dy) {
+      var c = counts[dy.key] || 0;
+      var h = maxCount ? Math.round((c / maxCount) * 100) : 0;
       return (
         '<div class="a-bar"><i style="--h:' + h + '"></i>' +
-        '<b>' + ADMIN.esc(mo.label) + '</b>' +
-        '<span>' + Math.round(sums[idx]) + ' DT</span></div>'
+        '<b>' + ADMIN.esc(dy.label) + '</b>' +
+        '<span>' + (c ? c : "") + '</span></div>'
       );
     }).join("");
 
     return (
       '<div class="a-card">' +
-      '<div class="a-card__head"><h2 class="a-title">Chiffre d’affaires — 6 derniers mois</h2></div>' +
+      '<div class="a-card__head"><h2 class="a-title">Commandes — 10 derniers jours</h2></div>' +
       '<div class="a-bars">' + bars + '</div>' +
+      '<p class="a-sub" style="margin-top:.6rem">Nombre de commandes au cours des 10 derniers jours</p>' +
+      '</div>'
+    );
+  }
+
+  /* ---------------- Trafic des commandes (donut) ---------------- */
+  function buildTrafficCard(orders) {
+    var groups = [
+      { key: "nouvelles", label: "Nouvelles", color: "var(--rose)", count: 0 },
+      { key: "prep", label: "Confirmées / En préparation", color: "var(--gold)", count: 0 },
+      { key: "expediee", label: "Expédiées", color: "var(--wine)", count: 0 },
+      { key: "livree", label: "Livrées", color: "var(--ok)", count: 0 },
+      { key: "annulees", label: "Annulées / Retours", color: "var(--sand)", count: 0 }
+    ];
+    var byKey = {};
+    groups.forEach(function (g) { byKey[g.key] = g; });
+
+    orders.forEach(function (o) {
+      switch (o.status) {
+        case "nouvelle": byKey.nouvelles.count++; break;
+        case "confirmee": case "en_preparation": byKey.prep.count++; break;
+        case "expediee": byKey.expediee.count++; break;
+        case "livree": byKey.livree.count++; break;
+        case "annulee": case "retour": byKey.annulees.count++; break;
+      }
+    });
+
+    var total = orders.length;
+    var body;
+    if (!total) {
+      body = '<div class="a-empty">Aucune commande pour le moment.</div>';
+    } else {
+      var acc = 0;
+      var stops = groups.map(function (g) {
+        var from = acc, deg = (g.count / total) * 360;
+        acc += deg;
+        return g.color + " " + from.toFixed(2) + "deg " + acc.toFixed(2) + "deg";
+      }).join(", ");
+
+      var legend = groups.map(function (g) {
+        return '<div><i style="background:' + g.color + '"></i>' + ADMIN.esc(g.label) + '<em>' + g.count + '</em></div>';
+      }).join("");
+
+      body =
+        '<div class="a-donut-wrap">' +
+        '<div class="a-donut" style="background:conic-gradient(' + stops + ')">' +
+        '<div class="a-donut__mid"><strong>' + total + '</strong><span>commandes</span></div>' +
+        '</div>' +
+        '<div class="a-legend">' + legend + '</div>' +
+        '</div>';
+    }
+
+    return (
+      '<div class="a-card">' +
+      '<div class="a-card__head"><h2 class="a-title">Trafic des commandes</h2></div>' +
+      body +
       '</div>'
     );
   }
@@ -128,7 +231,7 @@
 
     var body;
     if (!low.length) {
-      body = '<div class="a-empty">Aucune alerte de stock…</div>';
+      body = '<div class="a-empty">Aucune alerte de stock.</div>';
     } else {
       var rows = low.map(function (p) {
         var lowSizes = stockSizes(p).filter(function (sz) { return num(p.stock[sz]) <= 2; });
@@ -155,48 +258,8 @@
     }
 
     return (
-      '<div class="a-card" style="margin:0">' +
+      '<div class="a-card">' +
       '<div class="a-card__head"><h2 class="a-title">Stock faible</h2></div>' +
-      body +
-      '</div>'
-    );
-  }
-
-  /* ---------------- Pièces les plus commandées ---------------- */
-  function buildTopItemsCard(orders) {
-    var qtyMap = {};
-    orders.forEach(function (o) {
-      if (o.status === "annulee") return;
-      (o.items || []).forEach(function (it) {
-        var key = it.id || it.title || "?";
-        if (!qtyMap[key]) qtyMap[key] = { title: it.title || "—", qty: 0 };
-        qtyMap[key].qty += num(it.qty);
-      });
-    });
-
-    var topItems = Object.keys(qtyMap).map(function (k) { return qtyMap[k]; })
-      .sort(function (a, b) { return b.qty - a.qty; })
-      .slice(0, 5);
-
-    var body;
-    if (!orders.length || !topItems.length) {
-      body = '<div class="a-empty">Aucune commande enregistrée pour le moment.</div>';
-    } else {
-      var rows = topItems.map(function (it) {
-        return (
-          '<tr><td class="a-strong">' + ADMIN.esc(it.title) + '</td>' +
-          '<td class="num">' + it.qty + '</td></tr>'
-        );
-      }).join("");
-      body =
-        '<div class="a-scroll"><table class="a-table"><thead><tr>' +
-        '<th>Pièce</th><th class="num">Quantité</th>' +
-        '</tr></thead><tbody>' + rows + '</tbody></table></div>';
-    }
-
-    return (
-      '<div class="a-card" style="margin:0">' +
-      '<div class="a-card__head"><h2 class="a-title">Pièces les plus commandées</h2></div>' +
       body +
       '</div>'
     );
@@ -213,11 +276,12 @@
       body = '<div class="a-empty">Aucune commande pour le moment.</div>';
     } else {
       var rows = recent.map(function (o) {
+        var customer = o.customer || {};
         return (
           '<tr class="is-click" data-order-row>' +
           '<td class="a-strong">' + ADMIN.esc(o.id) + '</td>' +
           '<td>' + ADMIN.fmtDate(o.createdAt) + '</td>' +
-          '<td>' + ADMIN.esc(clientLabel(o)) + '</td>' +
+          '<td>' + ADMIN.esc(clientLabel(o)) + (customer.phone ? '<br><span class="a-dim">' + ADMIN.esc(customer.phone) + '</span>' : "") + '</td>' +
           '<td class="num">' + ADMIN.money(o.total) + '</td>' +
           '<td>' + ADMIN.statusBadge(o.status) + '</td>' +
           '</tr>'
@@ -225,13 +289,15 @@
       }).join("");
       body =
         '<div class="a-scroll"><table class="a-table"><thead><tr>' +
-        '<th>Commande</th><th>Date</th><th>Client</th><th class="num">Total</th><th>Statut</th>' +
+        '<th>N°</th><th>Date</th><th>Cliente</th><th class="num">Total</th><th>Statut</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div>';
     }
 
     return (
       '<div class="a-card">' +
-      '<div class="a-card__head"><h2 class="a-title">Dernières commandes</h2></div>' +
+      '<div class="a-card__head"><h2 class="a-title">Dernières commandes</h2>' +
+      '<div class="a-actions"><button class="a-btn a-btn--ghost a-btn--sm" type="button" data-view-all>Voir tout</button></div>' +
+      '</div>' +
       body +
       '</div>'
     );
@@ -249,18 +315,18 @@
 
         el.innerHTML =
           buildKpis(orders) +
-          buildChart(orders) +
-          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.2rem">' +
+          buildTrackingCard(orders) +
+          buildLast10DaysCard(orders) +
+          '<div class="a-split">' +
+          buildTrafficCard(orders) +
           buildStockCard(products) +
-          buildTopItemsCard(orders) +
           '</div>' +
           buildRecentOrdersCard(orders);
 
         el.addEventListener("click", function (e) {
-          var manageBtn = e.target.closest("[data-manage-stock]");
-          if (manageBtn) { ADMIN.navigate("produits"); return; }
-          var orderRow = e.target.closest("tr.is-click[data-order-row]");
-          if (orderRow) { ADMIN.navigate("commandes"); return; }
+          if (e.target.closest("[data-manage-stock]")) { ADMIN.navigate("produits"); return; }
+          if (e.target.closest("[data-view-all]")) { ADMIN.navigate("commandes"); return; }
+          if (e.target.closest("tr.is-click[data-order-row]")) { ADMIN.navigate("commandes"); return; }
         });
       });
     }

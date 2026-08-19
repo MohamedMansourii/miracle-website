@@ -13,6 +13,7 @@ function normalize(c, existing) {
   out.phone = s(out.phone, 40);
   out.zones = s(out.zones, 240);
   out.priceNote = s(out.priceNote, 240);
+  out.trackingUrl = s(out.trackingUrl, 300); // template with {code}, e.g. https://suivi.x.tn/{code}
   out.notes = s(out.notes, 1000);
   out.active = out.active !== false;
   out.persons = (Array.isArray(out.persons) ? out.persons : [])

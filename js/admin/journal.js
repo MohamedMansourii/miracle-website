@@ -264,7 +264,7 @@
   ADMIN.register("journal", {
     title: "Le Journal",
     icon: ICON,
-    order: 5,
+    order: 7,
     render: function (el) {
       return ADMIN.loadJournal().then(function (articles) {
         draw(el, articles);

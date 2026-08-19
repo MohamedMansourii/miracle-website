@@ -57,9 +57,46 @@
       (p.type || "").toLowerCase().indexOf(q) !== -1;
   }
 
+  /* --------------------------- inventory KPIs -------------------------- */
+  function inventoryKpisHtml(products) {
+    var tracked = products.filter(function (p) { return p.stock !== null && p.stock !== undefined; });
+    if (!tracked.length) {
+      return '<div class="a-empty">Activez le suivi du stock sur vos pièces pour voir la valeur de votre inventaire.</div>';
+    }
+    var totalUnits = 0, totalValue = 0, totalMargin = 0;
+    tracked.forEach(function (p) {
+      var price = Number(p.price) || 0;
+      var cost = p.cost != null ? Number(p.cost) : null;
+      Object.keys(p.stock || {}).forEach(function (s) {
+        var n = Number(p.stock[s]) || 0;
+        totalUnits += n;
+        totalValue += n * price;
+        if (cost != null) totalMargin += n * (price - cost);
+      });
+    });
+    return '<div class="a-kpis">' +
+      '<div class="a-kpi">' +
+        '<div class="a-kpi__num">' + totalUnits + '</div>' +
+        '<div class="a-kpi__lbl">Stock total</div>' +
+        '<div class="a-kpi__sub">' + tracked.length + (tracked.length > 1 ? ' pièces suivies' : ' pièce suivie') + '</div>' +
+      '</div>' +
+      '<div class="a-kpi a-kpi--hero">' +
+        '<div class="a-kpi__num">' + money(totalValue) + '</div>' +
+        '<div class="a-kpi__lbl">Valeur du stock</div>' +
+        '<div class="a-kpi__sub">au prix de vente</div>' +
+      '</div>' +
+      '<div class="a-kpi">' +
+        '<div class="a-kpi__num">' + money(totalMargin) + '</div>' +
+        '<div class="a-kpi__lbl">Marge potentielle</div>' +
+        '<div class="a-kpi__sub">sur les pièces avec prix de revient</div>' +
+      '</div>' +
+    '</div>';
+  }
+
   /* ----------------------------- list view --------------------------- */
   function paint(el, products) {
     el.innerHTML =
+      inventoryKpisHtml(products) +
       '<div class="a-card">' +
         '<div class="a-card__head">' +
           '<div><div class="a-title">Catalogue</div><div class="a-sub" id="pf-sub"></div></div>' +
@@ -120,11 +157,17 @@
       var stockBtn = (p.sizes && p.sizes.length)
         ? '<button class="a-btn a-btn--ghost a-btn--sm" data-stock="' + esc(p.id) + '" type="button">Stock</button>'
         : '';
+      var promoBadge = p.oldPrice != null
+        ? ' <span class="a-badge" style="background:var(--rose-soft);color:var(--wine)">Promo</span>'
+        : '';
+      var priceHtml = p.oldPrice != null
+        ? '<s style="color:var(--ink-soft)">' + money(p.oldPrice) + '</s> ' + money(p.price)
+        : money(p.price);
       return '<tr>' +
         '<td><img class="a-thumb" src="' + esc(p.img || "") + '" alt="" /></td>' +
-        '<td><div class="a-strong">' + esc(p.title) + '</div><div class="a-dim">' + esc(p.color || "") + '</div></td>' +
+        '<td><div class="a-strong">' + esc(p.title) + promoBadge + '</div><div class="a-dim">' + esc(p.color || "") + '</div></td>' +
         '<td>' + esc(p.type || "—") + '</td>' +
-        '<td class="num">' + money(p.price) + '</td>' +
+        '<td class="num">' + priceHtml + '</td>' +
         '<td class="num">' + (p.cost != null ? money(p.cost) : "—") + '</td>' +
         '<td>' + stockHtml + '</td>' +
         '<td>' + (p.active !== false ? '<span class="a-badge a-badge--on">En ligne</span>' : '<span class="a-badge a-badge--off">Masquée</span>') + '</td>' +
@@ -254,6 +297,7 @@
         '<div class="a-field"><label class="a-label">Titre *</label><input class="a-input" id="pf-title" type="text" value="' + esc(p.title || "") + '" required /></div>' +
         '<div class="a-field"><label class="a-label">Coloris</label><input class="a-input" id="pf-color" type="text" value="' + esc(p.color || "") + '" /></div>' +
         '<div class="a-field"><label class="a-label">Prix (DT) *</label><input class="a-input" id="pf-price" type="number" min="0" step="0.01" value="' + esc(p.price != null ? p.price : "") + '" required /></div>' +
+        '<div class="a-field"><label class="a-label">Prix avant remise (TND)</label><input class="a-input" id="pf-oldprice" type="number" min="0" step="0.01" value="' + esc(p.oldPrice != null ? p.oldPrice : "") + '" /><p class="a-hint">Affiché barré sur la boutique — laissez vide s\'il n\'y a pas de promo</p></div>' +
         '<div class="a-field"><label class="a-label">Prix de revient (DT)</label><input class="a-input" id="pf-cost" type="number" min="0" step="0.01" value="' + esc(p.cost != null ? p.cost : "") + '" /><p class="a-hint">Usage interne — jamais montré sur la boutique</p></div>' +
         '<div class="a-field"><label class="a-label">Type</label><input class="a-input" id="pf-type" type="text" list="pf-type-list" value="' + esc(p.type || "") + '" /><datalist id="pf-type-list">' + typeOptions + '</datalist></div>' +
         '<div class="a-field"><label class="a-label">Coloris multiples</label><input class="a-input" id="pf-colors" type="text" placeholder="ivoire, noir, bordeaux" value="' + esc((p.colors || []).join(", ")) + '" /></div>' +
@@ -280,7 +324,7 @@
   function openEditModal(product) {
     var isEdit = !!product;
     var p = product || {
-      title: "", color: "", price: 0, cost: null, type: "", colors: [], composition: "",
+      title: "", color: "", price: 0, oldPrice: null, cost: null, type: "", colors: [], composition: "",
       cats: [], sizes: [], flags: [], active: true, img: "", img2: "", gallery: [], stock: null
     };
 
@@ -408,6 +452,8 @@
 
       var costRaw = box.querySelector("#pf-cost").value;
       var cost = costRaw === "" ? null : Number(costRaw);
+      var oldPriceRaw = box.querySelector("#pf-oldprice").value;
+      var oldPrice = oldPriceRaw === "" ? null : Number(oldPriceRaw);
       var type = (box.querySelector("#pf-type").value || "").trim();
       var color = (box.querySelector("#pf-color").value || "").trim();
       var colors = (box.querySelector("#pf-colors").value || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
@@ -436,7 +482,7 @@
       if (!img2) img2 = img;
 
       var payload = {
-        title: title, color: color, price: price, cost: cost,
+        title: title, color: color, price: price, oldPrice: oldPrice, cost: cost,
         type: type, cats: cats, sizes: sizes, colors: colors, flags: flags,
         img: img, img2: img2, gallery: galleryArr, composition: composition,
         active: active, stock: stock

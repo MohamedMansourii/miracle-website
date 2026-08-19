@@ -335,3 +335,6 @@
   opacity: .38; cursor: not-allowed; text-decoration: line-through;
 }
 .size-opt.is-out:hover { border-color: var(--sand); color: var(--ink-soft); }
+
+/* compare-at (promo) price */
+.price-old { color: var(--ink-soft); font-size: .85em; text-decoration-color: var(--rose); margin-right: .15rem; }

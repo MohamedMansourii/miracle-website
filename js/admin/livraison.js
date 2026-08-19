@@ -50,6 +50,7 @@
     if (c.phone) html += '<p class="a-dim">Téléphone : <a href="tel:' + ADMIN.esc(c.phone) + '" style="text-decoration:underline">' + ADMIN.esc(c.phone) + '</a></p>';
     if (c.zones) html += '<p class="a-dim">Zones : ' + ADMIN.esc(c.zones) + '</p>';
     if (c.priceNote) html += '<p class="a-dim">Tarif : ' + ADMIN.esc(c.priceNote) + '</p>';
+    if (c.trackingUrl) html += '<p class="a-dim">Suivi en ligne ✓</p>';
 
     html += '<div style="margin-top:.7rem">' + personsList(c.persons) + '</div>';
 
@@ -107,12 +108,12 @@
     return '<div class="a-form-grid" data-person-row="' + idx + '" style="align-items:end;margin-bottom:.6rem">' +
       '<div class="a-field" style="margin-bottom:0">' +
       '<label class="a-label">Nom</label>' +
-      '<input class="a-input" type="text" data-person-name value="' + ADMIN.esc(p.name || "") + '" />' +
+      '<input class="a-input" type="text" data-person-name aria-label="Nom du livreur" placeholder="Nom du livreur" value="' + ADMIN.esc(p.name || "") + '" />' +
       '</div>' +
       '<div class="a-field" style="margin-bottom:0;display:flex;gap:.5rem;align-items:end">' +
       '<div style="flex:1">' +
       '<label class="a-label">Téléphone</label>' +
-      '<input class="a-input" type="text" data-person-phone value="' + ADMIN.esc(p.phone || "") + '" />' +
+      '<input class="a-input" type="text" data-person-phone aria-label="Téléphone" placeholder="Téléphone" value="' + ADMIN.esc(p.phone || "") + '" />' +
       '</div>' +
       '<button class="a-btn a-btn--ghost a-btn--sm" type="button" data-person-rm title="Retirer" style="min-height:42px">✕</button>' +
       '</div>' +
@@ -121,7 +122,7 @@
 
   function openCompanyModal(el, company) {
     var isEdit = !!company;
-    company = company || { name: "", contactName: "", email: "", phone: "", zones: "", priceNote: "", notes: "", active: true, persons: [] };
+    company = company || { name: "", contactName: "", email: "", phone: "", zones: "", priceNote: "", trackingUrl: "", notes: "", active: true, persons: [] };
     var persons = (company.persons || []).slice();
     var seq = persons.length;
 
@@ -152,6 +153,11 @@
       '<label class="a-label">Tarification</label>' +
       '<input class="a-input" type="text" id="lv-price" value="' + ADMIN.esc(company.priceNote) + '" />' +
       '<p class="a-hint">Ex. : 7 DT Sahel · 9 DT ailleurs</p>' +
+      '</div>' +
+      '<div class="a-field a-field--full">' +
+      '<label class="a-label">Lien de suivi (modèle)</label>' +
+      '<input class="a-input" type="text" id="lv-tracking" value="' + ADMIN.esc(company.trackingUrl) + '" />' +
+      '<p class="a-hint">URL de suivi de la société avec {code} à la place du numéro — ex. https://suivi.societe.tn/{code}. Les commandes avec un n° de suivi auront un bouton « Suivre le colis ».</p>' +
       '</div>' +
       '<div class="a-field a-field--full">' +
       '<label class="a-label">Notes</label>' +
@@ -208,6 +214,7 @@
         phone: m.el.querySelector("#lv-phone").value.trim(),
         zones: m.el.querySelector("#lv-zones").value.trim(),
         priceNote: m.el.querySelector("#lv-price").value.trim(),
+        trackingUrl: m.el.querySelector("#lv-tracking").value.trim(),
         notes: m.el.querySelector("#lv-notes").value.trim(),
         active: m.el.querySelector("#lv-active").checked,
         persons: newPersons
@@ -228,7 +235,14 @@
   }
 
   /* ---------------- ongoing parcels section ---------------- */
-  function orderRow(o) {
+  function trackCell(d, companiesById) {
+    var company = d.companyId ? companiesById[d.companyId] : null;
+    if (!d.tracking || !company || !company.trackingUrl) return "—";
+    var url = company.trackingUrl.split("{code}").join(d.tracking);
+    return '<a href="' + ADMIN.esc(url) + '" target="_blank" rel="noopener" style="text-decoration:underline" onclick="event.stopPropagation()">Suivre ↗</a>';
+  }
+
+  function orderRow(o, companiesById) {
     var d = o.delivery || {};
     var c = o.customer || {};
     var companyCell = d.companyName
@@ -246,10 +260,11 @@
       '<td>' + personCell + '</td>' +
       '<td class="num">' + feeCell + '</td>' +
       '<td>' + ADMIN.statusBadge(o.status) + '</td>' +
+      '<td>' + trackCell(d, companiesById) + '</td>' +
       '</tr>';
   }
 
-  function renderOngoing(el, orders) {
+  function renderOngoing(el, orders, companies) {
     var wrap = el.querySelector("[data-ongoing-wrap]");
     var list = (orders || []).filter(function (o) { return ONGOING_STATUSES[o.status]; });
 
@@ -258,9 +273,12 @@
       return;
     }
 
+    var companiesById = {};
+    (companies || []).forEach(function (c) { companiesById[c.id] = c; });
+
     var html = '<div class="a-scroll"><table class="a-table">' +
-      '<thead><tr><th>N°</th><th>Cliente</th><th>Société</th><th>Livreur</th><th>Frais</th><th>Statut</th></tr></thead>' +
-      '<tbody>' + list.map(orderRow).join("") + '</tbody>' +
+      '<thead><tr><th>N°</th><th>Cliente</th><th>Société</th><th>Livreur</th><th>Frais</th><th>Statut</th><th>Suivi</th></tr></thead>' +
+      '<tbody>' + list.map(function (o) { return orderRow(o, companiesById); }).join("") + '</tbody>' +
       '</table></div>';
     wrap.innerHTML = html;
 
@@ -273,7 +291,7 @@
   ADMIN.register("livraison", {
     title: "Livraison",
     icon: ICON,
-    order: 4,
+    order: 5,
     render: function (el) {
       el.innerHTML =
         '<div class="a-card">' +
@@ -294,7 +312,7 @@
         var companies = res[0] || [];
         var orders = res[1] || [];
         renderCompanies(el, companies, orders);
-        renderOngoing(el, orders);
+        renderOngoing(el, orders, companies);
       }).catch(function (e) {
         ADMIN.toast(e.message, "err");
         el.querySelector("[data-companies-wrap]").innerHTML = '<div class="a-empty">Erreur de chargement.</div>';

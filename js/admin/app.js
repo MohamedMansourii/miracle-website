@@ -11,8 +11,8 @@
 
   var modules = {};
   var currentRoute = "";
-  var state = { products: null, orders: null, companies: null, journal: null };
-  var loadedAt = { products: 0, orders: 0, companies: 0, journal: 0 };
+  var state = { products: null, orders: null, companies: null, journal: null, settings: null };
+  var loadedAt = { products: 0, orders: 0, companies: 0, journal: 0, settings: 0 };
   var CACHE_MS = 30000;
 
   /* ---------------- api ---------------- */
@@ -50,6 +50,7 @@
   var loadOrders = makeLoader("orders", "/api/orders", "orders");
   var loadCompanies = makeLoader("companies", "/api/companies", "companies");
   var loadJournal = makeLoader("journal", "/api/journal?all=1", "articles");
+  var loadSettings = makeLoader("settings", "/api/settings", "settings");
 
   /* ---------------- utils ---------------- */
   function esc(s) {
@@ -57,7 +58,16 @@
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
   }
-  function money(n) { return (Math.round((Number(n) || 0) * 100) / 100) + " DT"; }
+  function money(n) {
+    n = Number(n) || 0;
+    var opts = Number.isInteger(n) ? { maximumFractionDigits: 0 }
+                                   : { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+    try { return n.toLocaleString("fr-FR", opts) + " TND"; }
+    catch (e) { return n + " TND"; }
+  }
+  /* TVA helpers — prices are TTC; the TVA share is extracted from the total */
+  function tvaRate() { return (state.settings && state.settings.tvaRate) || 0; }
+  function tvaPart(ttc) { var r = tvaRate(); return r > 0 ? (Number(ttc) || 0) * r / (1 + r) : 0; }
   function fmtDate(iso) {
     if (!iso) return "—";
     var d = new Date(iso);
@@ -209,13 +219,28 @@
     });
   }
 
-  /* pending-orders bubble in the sidebar */
-  function refreshCounts() {
+  /* pending-orders bubble + instant new-order alerts ------------------- */
+  var knownOrders = null; // ids seen; null until first load establishes the baseline
+  function refreshCounts(force) {
     if (!token) return;
-    loadOrders().then(function (orders) {
+    loadOrders(force).then(function (orders) {
       var n = orders.filter(function (o) { return o.status === "nouvelle"; }).length;
       var b = document.querySelector('[data-count="commandes"]');
       if (b) { b.textContent = n; b.hidden = !n; }
+      document.title = (n ? "(" + n + ") " : "") + (modules[currentRoute] ? modules[currentRoute].title : "Tableau de bord") + " — MIRACLE Admin";
+      var ids = {};
+      orders.forEach(function (o) { ids[o.id] = true; });
+      if (knownOrders) {
+        var fresh = orders.filter(function (o) { return !knownOrders[o.id]; });
+        if (fresh.length) {
+          fresh.slice(0, 3).forEach(function (o) {
+            toast("🛍️ Nouvelle commande " + o.id + " — " + money(o.total)
+              + (o.customer && o.customer.name ? " (" + o.customer.name + ")" : ""), "ok");
+          });
+          if (currentRoute === "commandes" || currentRoute === "dashboard") rerender();
+        }
+      }
+      knownOrders = ids;
     }).catch(function () {});
   }
 
@@ -228,8 +253,9 @@
   function showApp() {
     document.getElementById("login").hidden = true;
     document.getElementById("app").hidden = false;
-    renderRoute(routeFromHash());
-    refreshCounts();
+    loadSettings().then(function () { renderRoute(routeFromHash()); })
+      .catch(function () { renderRoute(routeFromHash()); });
+    refreshCounts(true);
   }
   function logout() {
     token = "";
@@ -278,17 +304,18 @@
     window.addEventListener("hashchange", function () { if (token) renderRoute(routeFromHash()); });
 
     if (token) showApp(); else showLogin();
-    setInterval(refreshCounts, 90000);
+    setInterval(function () { refreshCounts(true); }, 45000); // instant-ish new-order alerts
   });
 
   /* ---------------- public surface ---------------- */
   window.ADMIN = {
     api: api, state: state,
     loadProducts: loadProducts, loadOrders: loadOrders,
-    loadCompanies: loadCompanies, loadJournal: loadJournal,
+    loadCompanies: loadCompanies, loadJournal: loadJournal, loadSettings: loadSettings,
     register: register, navigate: navigate, rerender: rerender,
     toast: toast, modal: modal, confirm: confirmDlg,
     money: money, esc: esc, fmtDate: fmtDate, uid: uid,
+    tvaRate: tvaRate, tvaPart: tvaPart,
     STATUS: STATUS, statusBadge: statusBadge,
     uploadImage: uploadImage, refreshCounts: refreshCounts
   };

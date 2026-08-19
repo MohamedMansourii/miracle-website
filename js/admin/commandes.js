@@ -20,6 +20,77 @@
     if (digits.length === 8) digits = "216" + digits;
     return "https://wa.me/" + digits;
   }
+  function waHrefText(phone, text) {
+    var digits = String(phone || "").replace(/\D/g, "");
+    if (digits.length === 8) digits = "216" + digits;
+    return "https://wa.me/" + digits + "?text=" + encodeURIComponent(text);
+  }
+
+  /* ---------------- relance (48h) ---------------- */
+  var RELANCE_MS = 48 * 3600 * 1000;
+  function isRelanceDue(o) {
+    if (!o || o.status !== "nouvelle" || !o.createdAt) return false;
+    var t = new Date(o.createdAt).getTime();
+    return !isNaN(t) && (Date.now() - t) > RELANCE_MS;
+  }
+
+  /* ---------------- period filter ---------------- */
+  function inPeriod(o, period) {
+    if (!period) return true;
+    var t = o.createdAt ? new Date(o.createdAt).getTime() : NaN;
+    if (isNaN(t)) return false;
+    var now = Date.now();
+    if (period === "today") {
+      var d = new Date(); d.setHours(0, 0, 0, 0);
+      return t >= d.getTime();
+    }
+    if (period === "7d") return now - t <= 7 * 24 * 3600 * 1000;
+    if (period === "30d") return now - t <= 30 * 24 * 3600 * 1000;
+    return true;
+  }
+
+  /* ---------------- WhatsApp message templates ---------------- */
+  function firstName(customer) {
+    var n = (customer && customer.name) ? String(customer.name).trim() : "";
+    return n ? n.split(/\s+/)[0] : "";
+  }
+  function itemsResume(items) {
+    return (items || []).map(function (it) {
+      var q = Number(it.qty) || 0;
+      var sizePart = it.size ? " (" + it.size + ")" : "";
+      return q + "× " + (it.title || "") + sizePart;
+    }).join(", ");
+  }
+  function cleanSpaces(s) { return String(s || "").replace(/ {2,}/g, " ").trim(); }
+
+  function msgConfirmation(o) {
+    var prenom = firstName(o.customer);
+    var s = "Bonjour " + prenom + " 🌸 Votre commande MIRACLE " + o.id + " (" + itemsResume(o.items) +
+      ") est confirmée pour un total de " + ADMIN.money(o.total) + ". Paiement à la livraison. Merci !";
+    return cleanSpaces(s);
+  }
+  function msgExpedition(o) {
+    var delivery = o.delivery || {};
+    var prenom = firstName(o.customer);
+    var s = "Bonne nouvelle " + prenom + " 🌸 Votre commande " + o.id + " est en route" +
+      (delivery.companyName ? " avec " + delivery.companyName : "");
+    if (delivery.personName) s += ", livreur " + delivery.personName + (delivery.personPhone ? " (" + delivery.personPhone + ")" : "");
+    if (delivery.tracking) s += ", n° de suivi " + delivery.tracking;
+    s += ". À très vite !";
+    return cleanSpaces(s);
+  }
+  function msgLivraison(o) {
+    var prenom = firstName(o.customer);
+    var s = "Merci " + prenom + " 🌸 Votre commande " + o.id + " a été livrée. Nous espérons qu'elle vous ravira " +
+      "— n'hésitez pas à nous partager votre avis !";
+    return cleanSpaces(s);
+  }
+  function msgRelance(o) {
+    var prenom = firstName(o.customer);
+    var s = "Bonjour " + prenom + " 🌸 Nous avons bien reçu votre demande " + o.id + " (" + itemsResume(o.items) +
+      "). Souhaitez-vous la confirmer ? Livraison partout en Tunisie, paiement à la livraison.";
+    return cleanSpaces(s);
+  }
 
   function fieldHtml(label, id, value) {
     return '<div class="a-field"><label class="a-label">' + label + '</label>' +
@@ -76,10 +147,25 @@
       feeRow = '<tr><td colspan="3" class="a-dim">Livraison</td><td class="num">+ ' + ADMIN.money(delivery.fee) + '</td></tr>';
     }
     var totalRow = '<tr><td colspan="3" class="a-strong">Total</td><td class="num a-strong">' + ADMIN.money(o.total) + '</td></tr>';
+    var tvaRow = "";
+    if (ADMIN.tvaRate() > 0) {
+      tvaRow = '<tr><td colspan="3" class="a-dim">dont TVA</td><td class="num a-dim">' + ADMIN.money(ADMIN.tvaPart(o.total)) + '</td></tr>';
+    }
 
     var companyOptions = '<option value="">— Aucune —</option>' + activeCompanies.map(function (c) {
       return '<option value="' + ADMIN.esc(c.id) + '"' + (delivery.companyId === c.id ? " selected" : "") + '>' + ADMIN.esc(c.name) + '</option>';
     }).join("");
+
+    var waSection = "";
+    if (customer.phone) {
+      waSection = sectionHtml("Messages WhatsApp") +
+        '<div class="a-actions" style="justify-content:flex-start;margin-bottom:1rem;flex-wrap:wrap">' +
+        '<a class="a-btn a-btn--ghost a-btn--sm" href="' + waHrefText(customer.phone, msgConfirmation(o)) + '" target="_blank" rel="noopener">Confirmation</a>' +
+        '<a class="a-btn a-btn--ghost a-btn--sm" href="' + waHrefText(customer.phone, msgExpedition(o)) + '" target="_blank" rel="noopener">Expédition</a>' +
+        '<a class="a-btn a-btn--ghost a-btn--sm" href="' + waHrefText(customer.phone, msgLivraison(o)) + '" target="_blank" rel="noopener">Livraison</a>' +
+        '<a class="a-btn a-btn--ghost a-btn--sm" href="' + waHrefText(customer.phone, msgRelance(o)) + '" target="_blank" rel="noopener">Relance</a>' +
+        '</div>';
+    }
 
     var historyHtml = "";
     if (o.history && o.history.length) {
@@ -93,7 +179,7 @@
     var body =
       '<div class="a-scroll"><table class="a-table" style="min-width:420px">' +
       '<thead><tr><th>Article</th><th>Qté</th><th>P.U.</th><th>Total</th></tr></thead>' +
-      '<tbody>' + itemsRows + feeRow + totalRow + '</tbody></table></div>' +
+      '<tbody>' + itemsRows + feeRow + totalRow + tvaRow + '</tbody></table></div>' +
 
       '<div class="a-field" style="margin-top:1.2rem">' +
       '<label class="a-label">Statut</label>' +
@@ -120,9 +206,15 @@
       fieldHtml("Livreur (nom)", "dm-d-pname", delivery.personName) +
       fieldHtml("Livreur (téléphone)", "dm-d-pphone", delivery.personPhone) +
       '<div class="a-field"><label class="a-label">Frais (DT)</label><input class="a-input" type="number" step="0.01" min="0" id="dm-d-fee" value="' + (typeof delivery.fee === "number" ? delivery.fee : "") + '" /></div>' +
+      '<div class="a-field a-field--full"><label class="a-label">N° de suivi (code barre)</label>' +
+      '<input class="a-input" id="dm-d-tracking" value="' + ADMIN.esc(delivery.tracking) + '" />' +
+      '<p id="dm-tracking-link" style="margin-top:.5rem"></p>' +
+      '</div>' +
       fieldFullHtml("Note livraison", "dm-d-note", delivery.note) +
       '</div>' +
       '<div class="a-actions" style="margin-bottom:1rem"><button class="a-btn a-btn--ghost a-btn--sm" id="dm-save-delivery" type="button">Enregistrer la livraison</button></div>' +
+
+      waSection +
 
       sectionHtml("Paiement") +
       '<div class="a-field"><label class="a-check"><input type="checkbox" id="dm-paid"' + (o.paid ? " checked" : "") + ' /> Payée (encaissée à la livraison)</label></div>' +
@@ -157,6 +249,8 @@
     var personSel = m.el.querySelector("#dm-d-person");
     var pnameInput = m.el.querySelector("#dm-d-pname");
     var pphoneInput = m.el.querySelector("#dm-d-pphone");
+    var trackingInput = m.el.querySelector("#dm-d-tracking");
+    var trackingLinkEl = m.el.querySelector("#dm-tracking-link");
     var currentPersons = [];
     function buildPersonOptions(companyId) {
       var comp = activeCompanies.filter(function (c) { return c.id === companyId; })[0];
@@ -166,8 +260,20 @@
       }).join("");
       personSel.innerHTML = html;
     }
+    function refreshTrackingLink() {
+      var comp = activeCompanies.filter(function (c) { return c.id === companySel.value; })[0];
+      var code = trackingInput.value.trim();
+      if (comp && comp.trackingUrl && comp.trackingUrl.indexOf("{code}") !== -1 && code) {
+        var href = comp.trackingUrl.replace("{code}", encodeURIComponent(code));
+        trackingLinkEl.innerHTML = '<a class="a-btn a-btn--ghost a-btn--sm" href="' + ADMIN.esc(href) + '" target="_blank" rel="noopener">Suivre le colis ↗</a>';
+      } else {
+        trackingLinkEl.innerHTML = "";
+      }
+    }
     buildPersonOptions(delivery.companyId || "");
-    companySel.addEventListener("change", function () { buildPersonOptions(companySel.value); });
+    refreshTrackingLink();
+    companySel.addEventListener("change", function () { buildPersonOptions(companySel.value); refreshTrackingLink(); });
+    trackingInput.addEventListener("input", refreshTrackingLink);
     personSel.addEventListener("change", function () {
       if (personSel.value === "") return;
       var p = currentPersons[Number(personSel.value)];
@@ -185,6 +291,7 @@
           personName: pnameInput.value.trim(),
           personPhone: pphoneInput.value.trim(),
           fee: (fee === null || isNaN(fee)) ? null : fee,
+          tracking: m.el.querySelector("#dm-d-tracking").value.trim(),
           note: m.el.querySelector("#dm-d-note").value.trim()
         }
       };
@@ -416,6 +523,24 @@
             return '<option value="' + k + '">' + ADMIN.esc(ADMIN.STATUS[k].label) + ' (' + (counts[k] || 0) + ')</option>';
           }).join("");
 
+        var periodFilterOptions =
+          '<option value="today">Aujourd\'hui</option>' +
+          '<option value="7d">7 derniers jours</option>' +
+          '<option value="30d">30 derniers jours</option>' +
+          '<option value="" selected>Tout</option>';
+
+        var citiesSeen = {};
+        orders.forEach(function (o) {
+          var c = o.customer && o.customer.city && String(o.customer.city).trim();
+          if (c) citiesSeen[c] = true;
+        });
+        var cityList = Object.keys(citiesSeen).sort(function (a, b) { return a.localeCompare(b, "fr"); });
+        var cityFilterOptions = '<option value="">Toutes les villes</option>' + cityList.map(function (c) {
+          return '<option value="' + ADMIN.esc(c) + '">' + ADMIN.esc(c) + '</option>';
+        }).join("");
+
+        var relanceCount = orders.filter(isRelanceDue).length;
+
         el.innerHTML =
           '<div class="a-card">' +
           '<div class="a-card__head">' +
@@ -423,8 +548,11 @@
           '<span class="a-sub" id="cmd-count"></span>' +
           '<div class="a-actions"><button class="a-btn a-btn--sm" id="cmd-new" type="button">+ Nouvelle commande</button></div>' +
           '</div>' +
-          '<div style="margin-bottom:1rem">' +
-          '<select class="a-select" id="cmd-filter-status" style="display:inline-block;width:auto;max-width:220px">' + statusFilterOptions + '</select>' +
+          '<div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem">' +
+          '<select class="a-select" id="cmd-filter-status" style="display:inline-block;width:auto;max-width:200px">' + statusFilterOptions + '</select>' +
+          '<select class="a-select" id="cmd-filter-period" style="display:inline-block;width:auto;max-width:170px">' + periodFilterOptions + '</select>' +
+          '<select class="a-select" id="cmd-filter-city" style="display:inline-block;width:auto;max-width:170px">' + cityFilterOptions + '</select>' +
+          '<button class="a-tag" id="cmd-filter-relance" type="button">⏰ À relancer' + (relanceCount ? " (" + relanceCount + ")" : "") + '</button>' +
           '</div>' +
           '<div class="a-search">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
@@ -434,15 +562,24 @@
           '</div>';
 
         var filterSel = el.querySelector("#cmd-filter-status");
+        var periodSel = el.querySelector("#cmd-filter-period");
+        var citySel = el.querySelector("#cmd-filter-city");
+        var relanceBtn = el.querySelector("#cmd-filter-relance");
         var searchInput = el.querySelector("#cmd-search");
         var wrap = el.querySelector("#cmd-table-wrap");
         var countEl = el.querySelector("#cmd-count");
+        var relanceOnly = false;
 
         function renderTable() {
           var statusVal = filterSel.value;
+          var periodVal = periodSel.value;
+          var cityVal = citySel.value;
           var q = (searchInput.value || "").trim().toLowerCase();
           var filtered = orders.filter(function (o) {
+            if (relanceOnly && !isRelanceDue(o)) return false;
             if (statusVal && o.status !== statusVal) return false;
+            if (!inPeriod(o, periodVal)) return false;
+            if (cityVal && (!o.customer || String(o.customer.city || "").trim() !== cityVal)) return false;
             if (q) {
               var customer = o.customer || {};
               var hay = (o.id + " " + (customer.name || "") + " " + (customer.phone || "")).toLowerCase();
@@ -452,7 +589,9 @@
           });
           countEl.textContent = filtered.length + " commande(s)";
           if (!filtered.length) {
-            wrap.innerHTML = '<div class="a-empty">Aucune commande ne correspond à cette recherche.</div>';
+            wrap.innerHTML = '<div class="a-empty">' +
+              (relanceOnly ? "Aucune commande à relancer pour le moment." : "Aucune commande ne correspond à cette recherche.") +
+              '</div>';
             return;
           }
           wrap.innerHTML =
@@ -462,7 +601,15 @@
         }
 
         filterSel.addEventListener("change", renderTable);
+        periodSel.addEventListener("change", renderTable);
+        citySel.addEventListener("change", renderTable);
         searchInput.addEventListener("input", renderTable);
+        relanceBtn.addEventListener("click", function () {
+          relanceOnly = !relanceOnly;
+          relanceBtn.classList.toggle("is-on", relanceOnly);
+          if (relanceOnly) filterSel.value = "";
+          renderTable();
+        });
         wrap.addEventListener("click", function (e) {
           var tr = e.target.closest("tr[data-id]");
           if (!tr) return;

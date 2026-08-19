@@ -129,16 +129,32 @@ Module file pattern (plain script, no ES modules):
 })();
 ```
 
-## Modules & routes
+## Modules & routes (v2 — Converty-class)
 
 | order | route | file | owns |
 |---|---|---|---|
-| 1 | `dashboard` | `js/admin/dashboard.js` | KPIs, CA 6-month bars, stock faible, dernières commandes |
-| 2 | `commandes` | `js/admin/commandes.js` | orders table + filters, detail modal, manual order |
+| 1 | `dashboard` | `js/admin/dashboard.js` | Converty-style KPIs (jour/semaine/mois/CA total hero), suivi livraisons bar, donut commandes, CA journalier bars, stock faible, dernières commandes |
+| 2 | `commandes` | `js/admin/commandes.js` | orders table + filters, detail modal (TVA line, tracking, WhatsApp templates), manual order |
 | 3 | `produits` | `js/admin/produits.js` | catalog CRUD, images, per-size stock |
-| 4 | `livraison` | `js/admin/livraison.js` | delivery companies CRUD + assignment overview |
-| 5 | `journal` | `js/admin/journal.js` | blog articles CRUD |
-| 6 | `parametres` | `js/admin/parametres.js` | password change, business info, links |
+| 4 | `statistiques` | `js/admin/statistiques.js` | period reports: CA, TVA, statuts, top produits/villes, perf. sociétés, export CSV |
+| 5 | `livraison` | `js/admin/livraison.js` | delivery companies CRUD (+ modèle de lien de suivi), colis en cours |
+| 6 | `calculateur` | `js/admin/calculateur.js` | profitability calculator (marges, retours, TVA, frais livraison) |
+| 7 | `journal` | `js/admin/journal.js` | blog articles CRUD |
+| 8 | `parametres` | `js/admin/parametres.js` | identifiants (username+password), TVA rate, business info |
+
+Extra shell surface (v2): `ADMIN.loadSettings()` → `{tvaRate, username, currency, customPassword}`
+(cached like other loaders); `ADMIN.tvaRate()` → number; `ADMIN.tvaPart(ttc)` → TVA share of a
+TTC amount; `ADMIN.money(n)` now renders **TND** fr-FR-grouped ("3 669,00 TND"; integers without
+decimals). New-order polling every 45 s: toast + title badge, auto-rerender of dashboard/commandes.
+`GET/PUT /api/settings` (auth): GET → `{settings}`; PUT `{tvaRate}` → `{ok, tvaRate}`.
+`POST /api/auth {action:"change", current, next, newUsername?}` may also change the username.
+Login requires `{action:"login", username, password}` (username case-insensitive; default env
+`ADMIN_USERNAME` = MiracleAdmin, overridable via settings.username).
+
+New CSS widgets (admin.css): `.a-kpi__sub`, `.a-kpi--hero` (wine KPI card),
+`.a-track`/`.a-track__seg--ok|--warn|--wine` (split % bar, width via `--w`),
+`.a-donut` (background = inline `conic-gradient(...)`) + `.a-donut__mid` + `.a-legend`,
+`.a-split` (auto-fit two-column card grid).
 
 KPI definitions (dashboard): **CA encaissé** = Σ total of `livree` orders; **En cours**
 = Σ total of `confirmee|en_preparation|expediee`; **Panier moyen** = CA period /

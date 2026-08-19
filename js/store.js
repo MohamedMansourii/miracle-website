@@ -514,7 +514,9 @@
       + '<img class="pcard__img pcard__img--back" src="'+p.img2+'" alt="" aria-hidden="true" loading="lazy">'
       + '<button class="pcard__add" data-add="'+p.id+'">Ajouter au panier</button></a>'
       + '<div class="pcard__body"><a class="pcard__title" href="product.html?id='+p.id+'">'+esc(p.title)+'</a>'
-      + '<p class="pcard__color">'+esc(p.color)+'</p><p class="pcard__price">'+money(p.price)+'</p></div>'
+      + '<p class="pcard__color">'+esc(p.color)+'</p><p class="pcard__price">'
+      + (p.oldPrice ? '<s class="price-old">'+money(p.oldPrice)+'</s> ' : '')
+      + money(p.price)+'</p></div>'
       + '</article>';
   }
   document.addEventListener("click", function(e){
@@ -645,7 +647,8 @@
       + '<div class="wrap pdp">'
       + '<div class="pdp__gallery">'+gallery.map(function(g,i){ return '<div class="pdp__shot'+(i===0?" is-main":"")+'"><img src="'+g+'" alt="'+esc(p.title)+' — vue '+(i+1)+'"></div>'; }).join("")+'</div>'
       + '<div class="pdp__info"><p class="pdp__eyebrow">MIRACLE</p><h1 class="pdp__title">'+esc(p.title)+'</h1>'
-      + '<p class="pdp__price">'+money(p.price)+'</p><p class="pdp__color">Coloris : '+esc(p.color)+'</p>'
+      + '<p class="pdp__price">'+(p.oldPrice ? '<s class="price-old">'+money(p.oldPrice)+'</s> ' : '')+money(p.price)+'</p>'
+      + '<p class="pdp__color">Coloris : '+esc(p.color)+'</p>'
       + '<div class="pdp__sizes"><p class="pdp__label">Taille</p><div class="size-row">'+sizes+'</div><p class="size-hint" id="size-hint"></p></div>'
       + '<button class="btn btn--block pdp__add" id="pdp-add">Ajouter au panier</button>'
       + '<a class="pdp__wa" href="'+waLink("Bonjour MIRACLE 🌸, je suis intéressée par : "+p.title+" ("+p.color+")")+'" target="_blank" rel="noopener">Une question ? Écrivez-nous sur WhatsApp</a>'

@@ -20,6 +20,8 @@ function normalize(p, existing) {
   out.title = String(out.title || "").trim() || "Pièce sans nom";
   out.color = String(out.color || "").trim();
   out.price = Math.max(0, Number(out.price) || 0);
+  out.oldPrice = out.oldPrice === null || out.oldPrice === "" || out.oldPrice === undefined ? null : Math.max(0, Number(out.oldPrice) || 0);
+  if (out.oldPrice !== null && out.oldPrice <= out.price) out.oldPrice = null; // compare-at must exceed the price
   out.cost = out.cost === null || out.cost === "" || out.cost === undefined ? null : Math.max(0, Number(out.cost) || 0);
   out.type = String(out.type || "Pièce").trim();
   ["cats", "sizes", "colors", "flags", "gallery"].forEach(function (k) {

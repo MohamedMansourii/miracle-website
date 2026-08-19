@@ -214,6 +214,43 @@ ul { list-style: none; padding: 0; }
 .a-empty strong { display: block; font-family: var(--serif); font-weight: 500; font-size: 1.25rem; color: var(--ink); margin-bottom: .3rem; }
 .a-loading { text-align: center; padding: 3rem 1rem; color: var(--ink-soft); letter-spacing: .12em; text-transform: uppercase; font-size: .72rem; }
 
+/* -------------------- KPI variants & stat widgets ------------------- */
+.a-kpi__sub { font-size: .74rem; color: var(--ink-soft); margin-top: .15rem; }
+.a-kpi--hero { background: var(--wine); border-color: var(--wine); border-top-color: var(--gold-lite); }
+.a-kpi--hero .a-kpi__num { color: var(--ivory); }
+.a-kpi--hero .a-kpi__num small { color: var(--rose-soft); }
+.a-kpi--hero .a-kpi__lbl { color: var(--gold-lite); }
+.a-kpi--hero .a-kpi__sub { color: var(--rose-soft); }
+
+/* horizontal split bar (e.g. % livrées vs % retours) */
+.a-track { display: flex; height: 30px; border-radius: 999px; overflow: hidden; background: var(--sand); }
+.a-track__seg {
+  display: flex; align-items: center; padding: 0 .8rem; min-width: 0;
+  font-size: .72rem; font-weight: 500; letter-spacing: .06em; white-space: nowrap;
+  width: calc(var(--w, 0) * 1%); transition: width .5s var(--ease);
+}
+.a-track__seg--ok { background: var(--ok); color: #fff; }
+.a-track__seg--warn { background: var(--rose); color: #fff; justify-content: flex-end; }
+.a-track__seg--wine { background: var(--wine); color: var(--ivory); }
+
+/* donut chart via conic-gradient: set background inline with the segments */
+.a-donut-wrap { display: flex; align-items: center; gap: 1.3rem; flex-wrap: wrap; }
+.a-donut {
+  width: 148px; height: 148px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; position: relative;
+}
+.a-donut::before { content: ""; position: absolute; inset: 22px; border-radius: 50%; background: var(--cream); }
+.a-donut__mid { position: relative; text-align: center; z-index: 1; }
+.a-donut__mid strong { display: block; font-family: var(--serif); font-weight: 500; font-size: 1.5rem; color: var(--wine); line-height: 1.1; }
+.a-donut__mid span { font-size: .66rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); }
+.a-legend { display: flex; flex-direction: column; gap: .45rem; font-size: .84rem; }
+.a-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: .5rem; vertical-align: -1px; }
+.a-legend em { font-style: normal; color: var(--ink-soft); margin-left: .4rem; }
+
+/* two-column card area */
+.a-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 1.2rem; margin-top: 1.2rem; }
+.a-split .a-card { margin: 0; }
+
 /* ----------------------------- Bar chart ---------------------------- */
 .a-bars { display: flex; align-items: flex-end; gap: .7rem; height: 150px; padding-top: .4rem; }
 .a-bar { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; text-align: center; gap: .35rem; min-width: 0; }
