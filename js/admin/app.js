@@ -250,10 +250,11 @@
 
     document.getElementById("login-form").addEventListener("submit", function (e) {
       e.preventDefault();
+      var user = document.getElementById("login-user").value.trim();
       var pw = document.getElementById("login-pw").value;
       var btn = document.getElementById("login-btn"), msg = document.getElementById("login-msg");
       btn.disabled = true; msg.textContent = "";
-      api("/api/auth", { method: "POST", body: { action: "login", password: pw } }).then(function (j) {
+      api("/api/auth", { method: "POST", body: { action: "login", username: user, password: pw } }).then(function (j) {
         token = j.token;
         try { localStorage.setItem(TOKEN_KEY, token); } catch (e2) {}
         document.getElementById("login-pw").value = "";

@@ -18,12 +18,15 @@ module.exports = async function handler(req, res) {
       log.push(now); attempts.set(ip, log);
 
       const pw = String(body.password || "");
-      if (!pw) return L.err(res, 400, "Mot de passe requis.");
+      const user = String(body.username || "").trim();
+      if (!pw || !user) return L.err(res, 400, "Nom d'utilisateur et mot de passe requis.");
       const settings = await L.readDoc("data/settings", {});
-      const valid = settings.passwordHash
+      const expectedUser = settings.username || process.env.ADMIN_USERNAME || "MiracleAdmin";
+      const userOk = L.safeEqual(user.toLowerCase(), String(expectedUser).toLowerCase());
+      const pwOk = settings.passwordHash
         ? L.checkPassword(pw, settings.passwordHash)
         : L.safeEqual(pw, process.env.ADMIN_PASSWORD || "");
-      if (!valid) return L.err(res, 401, "Mot de passe incorrect.");
+      if (!userOk || !pwOk) return L.err(res, 401, "Identifiants incorrects.");
       attempts.set(ip, []);
       return L.ok(res, { token: L.signToken() });
     }
@@ -38,6 +41,10 @@ module.exports = async function handler(req, res) {
       const next = String(body.next || "");
       if (next.length < 8) return L.err(res, 400, "Le nouveau mot de passe doit faire au moins 8 caractères.");
       settings.passwordHash = L.hashPassword(next);
+      if (body.newUsername !== undefined) {
+        const nu = String(body.newUsername || "").trim();
+        if (nu.length >= 3) settings.username = nu.slice(0, 40);
+      }
       settings.updatedAt = new Date().toISOString();
       await L.writeDoc("data/settings", settings, { encrypt: true });
       return L.ok(res, { ok: true });
