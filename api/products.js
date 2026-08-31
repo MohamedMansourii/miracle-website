@@ -54,7 +54,13 @@ module.exports = async function handler(req, res) {
       if (authed) return L.ok(res, { products: products });
       const pub = products.filter(function (p) { return p.active !== false; })
         .map(function (p) { const c = Object.assign({}, p); delete c.cost; return c; });
-      return L.ok(res, { products: pub }, "public, s-maxage=30, stale-while-revalidate=120");
+      // shop info the storefront needs at checkout (never expose the rest of settings)
+      const settings = await L.readDoc("data/settings", {});
+      const shop = {
+        deliveryFee: typeof settings.deliveryFee === "number" ? settings.deliveryFee : 8,
+        freeShippingAbove: typeof settings.freeShippingAbove === "number" ? settings.freeShippingAbove : null
+      };
+      return L.ok(res, { products: pub, shop: shop }, "public, s-maxage=30, stale-while-revalidate=120");
     }
 
     if (!authed) return L.err(res, 401, "Session expirée — reconnectez-vous.");

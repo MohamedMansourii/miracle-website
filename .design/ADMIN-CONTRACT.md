@@ -131,13 +131,14 @@ Module file pattern (plain script, no ES modules):
 
 ## Modules & routes (v2 — Converty-class)
 
+_livraison module removed 2026-08-31._
+
 | order | route | file | owns |
 |---|---|---|---|
 | 1 | `dashboard` | `js/admin/dashboard.js` | Converty-style KPIs (jour/semaine/mois/CA total hero), suivi livraisons bar, donut commandes, CA journalier bars, stock faible, dernières commandes |
 | 2 | `commandes` | `js/admin/commandes.js` | orders table + filters, detail modal (TVA line, tracking, WhatsApp templates), manual order |
 | 3 | `produits` | `js/admin/produits.js` | catalog CRUD, images, per-size stock |
 | 4 | `statistiques` | `js/admin/statistiques.js` | period reports: CA, TVA, statuts, top produits/villes, perf. sociétés, export CSV |
-| 5 | `livraison` | `js/admin/livraison.js` | delivery companies CRUD (+ modèle de lien de suivi), colis en cours |
 | 6 | `calculateur` | `js/admin/calculateur.js` | profitability calculator (marges, retours, TVA, frais livraison) |
 | 7 | `journal` | `js/admin/journal.js` | blog articles CRUD |
 | 8 | `parametres` | `js/admin/parametres.js` | identifiants (username+password), TVA rate, business info |

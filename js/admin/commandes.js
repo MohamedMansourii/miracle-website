@@ -70,13 +70,9 @@
     return cleanSpaces(s);
   }
   function msgExpedition(o) {
-    var delivery = o.delivery || {};
     var prenom = firstName(o.customer);
-    var s = "Bonne nouvelle " + prenom + " 🌸 Votre commande " + o.id + " est en route" +
-      (delivery.companyName ? " avec " + delivery.companyName : "");
-    if (delivery.personName) s += ", livreur " + delivery.personName + (delivery.personPhone ? " (" + delivery.personPhone + ")" : "");
-    if (delivery.tracking) s += ", n° de suivi " + delivery.tracking;
-    s += ". À très vite !";
+    var s = "Bonne nouvelle " + prenom + " 🌸 Votre commande " + o.id + " est en route ! " +
+      "Livraison à domicile, paiement à la livraison. À très vite !";
     return cleanSpaces(s);
   }
   function msgLivraison(o) {
@@ -114,7 +110,7 @@
     var qty = items.reduce(function (s, it) { return s + (Number(it.qty) || 0); }, 0);
     var customer = o.customer || {};
     var custName = customer.name ? customer.name : sourceLabel(o.source);
-    var deliveryName = (o.delivery && o.delivery.companyName) ? o.delivery.companyName : "—";
+    var cityName = customer.city ? customer.city : "—";
     var paidHtml = o.paid ? '<span class="a-badge a-badge--on">Oui</span>' : "—";
     return '<tr class="is-click" data-id="' + ADMIN.esc(o.id) + '">' +
       '<td class="a-strong">' + ADMIN.esc(o.id) + '</td>' +
@@ -122,7 +118,7 @@
       '<td>' + ADMIN.esc(custName) + (customer.phone ? '<br><span class="a-dim">' + ADMIN.esc(customer.phone) + '</span>' : "") + '</td>' +
       '<td>' + qty + ' pièce(s)</td>' +
       '<td class="num">' + ADMIN.money(o.total) + '</td>' +
-      '<td>' + ADMIN.esc(deliveryName) + '</td>' +
+      '<td>' + ADMIN.esc(cityName) + '</td>' +
       '<td>' + paidHtml + '</td>' +
       '<td>' + ADMIN.statusBadge(o.status) + '</td>' +
       '</tr>';
@@ -130,7 +126,6 @@
 
   /* ---------------- detail modal ---------------- */
   function openDetailModal(o, companies, products) {
-    var activeCompanies = companies.filter(function (c) { return c.active; });
     var customer = o.customer || {};
     var delivery = o.delivery || {};
     var items = o.items || [];
@@ -151,10 +146,6 @@
     if (ADMIN.tvaRate() > 0) {
       tvaRow = '<tr><td colspan="3" class="a-dim">dont TVA</td><td class="num a-dim">' + ADMIN.money(ADMIN.tvaPart(o.total)) + '</td></tr>';
     }
-
-    var companyOptions = '<option value="">— Aucune —</option>' + activeCompanies.map(function (c) {
-      return '<option value="' + ADMIN.esc(c.id) + '"' + (delivery.companyId === c.id ? " selected" : "") + '>' + ADMIN.esc(c.name) + '</option>';
-    }).join("");
 
     var waSection = "";
     if (customer.phone) {
@@ -199,21 +190,6 @@
       '</div>' +
       '<div class="a-actions" style="margin-bottom:1rem"><button class="a-btn a-btn--ghost a-btn--sm" id="dm-save-customer" type="button">Enregistrer la cliente</button></div>' +
 
-      sectionHtml("Livraison") +
-      '<div class="a-form-grid">' +
-      '<div class="a-field"><label class="a-label">Société</label><select class="a-select" id="dm-d-company">' + companyOptions + '</select></div>' +
-      '<div class="a-field"><label class="a-label">Livreur (liste)</label><select class="a-select" id="dm-d-person"><option value="">— Choisir —</option></select></div>' +
-      fieldHtml("Livreur (nom)", "dm-d-pname", delivery.personName) +
-      fieldHtml("Livreur (téléphone)", "dm-d-pphone", delivery.personPhone) +
-      '<div class="a-field"><label class="a-label">Frais (DT)</label><input class="a-input" type="number" step="0.01" min="0" id="dm-d-fee" value="' + (typeof delivery.fee === "number" ? delivery.fee : "") + '" /></div>' +
-      '<div class="a-field a-field--full"><label class="a-label">N° de suivi (code barre)</label>' +
-      '<input class="a-input" id="dm-d-tracking" value="' + ADMIN.esc(delivery.tracking) + '" />' +
-      '<p id="dm-tracking-link" style="margin-top:.5rem"></p>' +
-      '</div>' +
-      fieldFullHtml("Note livraison", "dm-d-note", delivery.note) +
-      '</div>' +
-      '<div class="a-actions" style="margin-bottom:1rem"><button class="a-btn a-btn--ghost a-btn--sm" id="dm-save-delivery" type="button">Enregistrer la livraison</button></div>' +
-
       waSection +
 
       sectionHtml("Paiement") +
@@ -241,65 +217,6 @@
         m.close();
         ADMIN.rerender();
         ADMIN.toast("Statut mis à jour.", "ok");
-      }).catch(function (e2) { ADMIN.toast(e2.message, "err"); });
-    });
-
-    /* delivery: company -> person rebuild */
-    var companySel = m.el.querySelector("#dm-d-company");
-    var personSel = m.el.querySelector("#dm-d-person");
-    var pnameInput = m.el.querySelector("#dm-d-pname");
-    var pphoneInput = m.el.querySelector("#dm-d-pphone");
-    var trackingInput = m.el.querySelector("#dm-d-tracking");
-    var trackingLinkEl = m.el.querySelector("#dm-tracking-link");
-    var currentPersons = [];
-    function buildPersonOptions(companyId) {
-      var comp = activeCompanies.filter(function (c) { return c.id === companyId; })[0];
-      currentPersons = (comp && comp.persons) || [];
-      var html = '<option value="">— Choisir —</option>' + currentPersons.map(function (p, idx) {
-        return '<option value="' + idx + '">' + ADMIN.esc(p.name) + '</option>';
-      }).join("");
-      personSel.innerHTML = html;
-    }
-    function refreshTrackingLink() {
-      var comp = activeCompanies.filter(function (c) { return c.id === companySel.value; })[0];
-      var code = trackingInput.value.trim();
-      if (comp && comp.trackingUrl && comp.trackingUrl.indexOf("{code}") !== -1 && code) {
-        var href = comp.trackingUrl.replace("{code}", encodeURIComponent(code));
-        trackingLinkEl.innerHTML = '<a class="a-btn a-btn--ghost a-btn--sm" href="' + ADMIN.esc(href) + '" target="_blank" rel="noopener">Suivre le colis ↗</a>';
-      } else {
-        trackingLinkEl.innerHTML = "";
-      }
-    }
-    buildPersonOptions(delivery.companyId || "");
-    refreshTrackingLink();
-    companySel.addEventListener("change", function () { buildPersonOptions(companySel.value); refreshTrackingLink(); });
-    trackingInput.addEventListener("input", refreshTrackingLink);
-    personSel.addEventListener("change", function () {
-      if (personSel.value === "") return;
-      var p = currentPersons[Number(personSel.value)];
-      if (p) { pnameInput.value = p.name || ""; pphoneInput.value = p.phone || ""; }
-    });
-
-    m.el.querySelector("#dm-save-delivery").addEventListener("click", function () {
-      var comp = activeCompanies.filter(function (c) { return c.id === companySel.value; })[0];
-      var feeRaw = m.el.querySelector("#dm-d-fee").value;
-      var fee = feeRaw === "" ? null : Number(feeRaw);
-      var patch = {
-        delivery: {
-          companyId: companySel.value || null,
-          companyName: comp ? comp.name : "",
-          personName: pnameInput.value.trim(),
-          personPhone: pphoneInput.value.trim(),
-          fee: (fee === null || isNaN(fee)) ? null : fee,
-          tracking: m.el.querySelector("#dm-d-tracking").value.trim(),
-          note: m.el.querySelector("#dm-d-note").value.trim()
-        }
-      };
-      ADMIN.api("/api/orders", { method: "PUT", body: { id: o.id, patch: patch } }).then(function () {
-        return ADMIN.loadOrders(true);
-      }).then(function () {
-        ADMIN.rerender();
-        ADMIN.toast("Livraison enregistrée.", "ok");
       }).catch(function (e2) { ADMIN.toast(e2.message, "err"); });
     });
 
@@ -596,7 +513,7 @@
           }
           wrap.innerHTML =
             '<div class="a-scroll"><table class="a-table"><thead><tr>' +
-            '<th>N°</th><th>Date</th><th>Cliente</th><th>Pièces</th><th>Total</th><th>Livraison</th><th>Payée</th><th>Statut</th>' +
+            '<th>N°</th><th>Date</th><th>Cliente</th><th>Pièces</th><th>Total</th><th>Ville</th><th>Payée</th><th>Statut</th>' +
             '</tr></thead><tbody>' + filtered.map(rowHtml).join("") + '</tbody></table></div>';
         }
 

@@ -256,61 +256,15 @@
         + '<div class="cart__price">'+money(p.price*i.qty)+'</div></div>';
     }).join("");
     var tot = document.getElementById("cart-total"); if(tot) tot.textContent = money(cartTotal());
-    var wa = document.getElementById("cart-wa");
-    if(wa){
-      var cust = getCustomer();
-      var extra = [];
-      if(cust.name) extra.push("Nom : "+cust.name);
-      if(cust.phone) extra.push("Tél : "+cust.phone);
-      if(cust.city) extra.push("Ville : "+cust.city);
-      var msg = "Bonjour MIRACLE 🌸, je souhaite commander :\n" + cart.map(function(i){
-        var p=byId(i.id); return "• "+p.title+" ("+p.color+(i.size?", taille "+i.size:"")+") ×"+i.qty;
-      }).join("\n") + "\nTotal indicatif : " + money(cartTotal())
-      + (extra.length ? "\n" + extra.join(" · ") : "");
-      wa.href = waLink(msg);
-    }
   }
 
-  /* Customer details (optional, kept on this device only) -------------- */
+  /* Customer details (kept on this device only, prefills the checkout) -- */
   var CUST_KEY = "miracle_cust_v1";
   function getCustomer(){
     try { return JSON.parse(localStorage.getItem(CUST_KEY)) || {}; } catch(e){ return {}; }
   }
-  function bindCustomerFields(){
-    var map = { "cart-name":"name", "cart-phone":"phone", "cart-city":"city" };
-    var cust = getCustomer();
-    Object.keys(map).forEach(function(id){
-      var input = document.getElementById(id); if(!input) return;
-      if(cust[map[id]]) input.value = cust[map[id]];
-      input.addEventListener("input", function(){
-        var c = getCustomer(); c[map[id]] = this.value.trim();
-        try { localStorage.setItem(CUST_KEY, JSON.stringify(c)); } catch(e){}
-        syncCartUI();
-      });
-    });
-  }
-
-  /* Record the order in the boutique's back office (fire-and-forget).
-     The WhatsApp conversation stays the real confirmation channel. */
-  var ORDER_SIG_KEY = "miracle_last_order";
-  function recordOrder(){
-    if(!cart.length) return;
-    var sig = JSON.stringify(cart);
-    try {
-      var last = JSON.parse(sessionStorage.getItem(ORDER_SIG_KEY) || "null");
-      if(last && last.sig === sig && Date.now() - last.at < 10*60*1000) return; // double-click guard
-      sessionStorage.setItem(ORDER_SIG_KEY, JSON.stringify({ sig: sig, at: Date.now() }));
-    } catch(e){}
-    var payload = {
-      items: cart.map(function(i){ return { id:i.id, size:i.size, qty:i.qty }; }),
-      customer: getCustomer()
-    };
-    try {
-      fetch(API_BASE + "/api/orders", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload), keepalive: true
-      }).catch(function(){});
-    } catch(e){}
+  function saveCustomer(c){
+    try { localStorage.setItem(CUST_KEY, JSON.stringify(c)); } catch(e){}
   }
 
   /* Drawer / overlay helpers ---------------------------------------- */
@@ -416,14 +370,9 @@
       + '<div class="drawer__head"><h2 class="drawer__title">Panier</h2><button class="icon-btn" data-close aria-label="Fermer">'+ICON.close+'</button></div>'
       + '<div class="cart__body" id="cart-body"></div>'
       + '<div class="cart__foot" id="cart-foot" hidden>'
-      + '<div class="cart__row"><span>Total indicatif</span><strong id="cart-total">0 DT</strong></div>'
-      + '<div class="cart__fields">'
-      + '<input id="cart-name" autocomplete="name" placeholder="Votre nom (optionnel)" aria-label="Votre nom">'
-      + '<input id="cart-phone" type="tel" autocomplete="tel" placeholder="Téléphone (optionnel)" aria-label="Téléphone">'
-      + '<input id="cart-city" autocomplete="address-level2" placeholder="Ville (optionnel)" aria-label="Ville">'
-      + '</div>'
-      + '<p class="cart__note">Paiement à la livraison · écrin cadeau offert. La commande se confirme sur WhatsApp.</p>'
-      + '<a class="btn btn--block" id="cart-wa" target="_blank" rel="noopener">Commander sur WhatsApp</a>'
+      + '<div class="cart__row"><span>Sous-total</span><strong id="cart-total">0 DT</strong></div>'
+      + '<p class="cart__note">Paiement à la livraison · écrin cadeau offert. Frais d\'expédition calculés à l\'étape suivante.</p>'
+      + '<a class="btn btn--block" id="cart-checkout" href="checkout.html">Passer la commande</a>'
       + '<button class="cart__continue" data-close>Continuer mes achats</button></div>'
       + '</aside>'
       // nav drawer (mobile)
@@ -446,9 +395,6 @@
     });
     // close nav-drawer on link click
     document.querySelector("#nav-drawer").addEventListener("click", function(e){ if(e.target.tagName==="A") closeAll(); });
-    // record the order in the back office when checkout opens WhatsApp
-    document.getElementById("cart-wa").addEventListener("click", recordOrder);
-    bindCustomerFields();
   }
 
   function renderFooter(){
@@ -742,10 +688,172 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* 8c. CHECKOUT — commande à la livraison (formulaire + confirmation) */
+  /* ------------------------------------------------------------------ */
+  function checkoutFee(){
+    var sub = cartTotal();
+    if(SHOP.freeShippingAbove !== null && sub >= SHOP.freeShippingAbove) return 0;
+    return SHOP.deliveryFee || 0;
+  }
+  function coField(id, label, opts){
+    opts = opts || {};
+    return '<div class="co-field'+(opts.full?' co-field--full':'')+'">'
+      + '<label class="co-label" for="'+id+'">'+label+(opts.req?' *':'')+'</label>'
+      + (opts.area
+        ? '<textarea class="co-input" id="'+id+'" rows="3"'+(opts.ph?' placeholder="'+opts.ph+'"':'')+'></textarea>'
+        : '<input class="co-input" id="'+id+'" type="'+(opts.type||'text')+'"'
+          + (opts.auto?' autocomplete="'+opts.auto+'"':'')+(opts.ph?' placeholder="'+opts.ph+'"':'')+' />')
+      + '<p class="co-err" id="'+id+'-err" role="alert"></p></div>';
+  }
+  function initCheckout(){
+    var root = document.getElementById("checkout"); if(!root) return;
+    document.title = "Commande — MIRACLE";
+
+    if(!cart.length){
+      root.innerHTML = '<div class="wrap co-empty"><h1 class="page-hero__title">Votre panier est vide</h1>'
+        + '<p class="prose">Ajoutez vos pièces préférées, puis revenez passer votre commande.</p>'
+        + '<p style="margin-top:1.4rem"><a class="btn" href="collections.html?cat=nouveautes">Découvrir la collection</a></p></div>';
+      return;
+    }
+
+    var fee = checkoutFee(), sub = cartTotal();
+    var lines = cart.map(function(i){
+      var p = byId(i.id); if(!p) return "";
+      return '<div class="co-line">'
+        + '<span class="co-line__thumb"><img src="'+p.img+'" alt=""><em>'+i.qty+'</em></span>'
+        + '<span class="co-line__meta"><strong>'+esc(p.title)+'</strong>'
+        + '<small>'+esc(p.color)+(i.size?' · '+esc(i.size):'')+'</small></span>'
+        + '<span class="co-line__price">'+money(p.price*i.qty)+'</span></div>';
+    }).join("");
+
+    root.innerHTML =
+      '<div class="wrap"><nav class="crumbs"><a href="index.html">Accueil</a> / <span>Commande</span></nav></div>'
+      + '<div class="wrap co">'
+      + '<form class="co-form" id="co-form" novalidate>'
+      + '<h1 class="co-h1">Finaliser ma commande</h1>'
+
+      + '<h2 class="co-h2">Coordonnées &amp; livraison</h2>'
+      + '<div class="co-grid">'
+      + coField("co-prenom","Prénom (optionnel)",{auto:"given-name"})
+      + coField("co-nom","Nom",{req:1,auto:"family-name"})
+      + coField("co-tel","Téléphone",{req:1,type:"tel",auto:"tel",ph:"Ex. 92 970 596",full:1})
+      + coField("co-adresse","Adresse",{req:1,auto:"street-address",full:1})
+      + coField("co-app","Appartement, étage, repère… (optionnel)",{full:1})
+      + coField("co-ville","Ville",{req:1,auto:"address-level2"})
+      + coField("co-cp","Code postal (facultatif)",{auto:"postal-code"})
+      + coField("co-note","Remarques pour la livraison (optionnel)",{area:1,full:1,ph:"Horaires, point de repère…"})
+      + '</div>'
+
+      + '<h2 class="co-h2">Expédition</h2>'
+      + '<div class="co-method is-on"><span class="co-radio" aria-hidden="true"></span>'
+      + '<span>Livraison à domicile — partout en Tunisie</span>'
+      + '<strong>'+(fee===0?'Offerte':money(fee))+'</strong></div>'
+
+      + '<h2 class="co-h2">Paiement</h2>'
+      + '<p class="co-trust">Toutes les commandes sont confirmées par téléphone. Aucun paiement en ligne.</p>'
+      + '<div class="co-method is-on"><span class="co-radio" aria-hidden="true"></span>'
+      + '<span>Paiement à la livraison (espèces)</span><strong>'+money(sub+fee)+'</strong></div>'
+
+      + '<button class="btn btn--block co-submit" id="co-submit" type="submit">Valider la commande</button>'
+      + '<p class="co-err" id="co-global-err" role="alert"></p>'
+      + '</form>'
+
+      + '<aside class="co-summary" aria-label="Récapitulatif">'
+      + '<h2 class="co-h2" style="margin-top:0">Votre commande</h2>'
+      + lines
+      + '<div class="co-tot"><span>Sous-total</span><span>'+money(sub)+'</span></div>'
+      + '<div class="co-tot"><span>Expédition</span><span>'+(fee===0?'Offerte':money(fee))+'</span></div>'
+      + '<div class="co-tot co-tot--grand"><span>Total</span><span><small>TND</small> '+money(sub+fee)+'</span></div>'
+      + '<p class="co-gift">🎀 Écrin cadeau offert avec chaque commande.</p>'
+      + '</aside>'
+      + '</div>';
+
+    // prefill from the last order on this device
+    var cust = getCustomer();
+    var pre = { "co-prenom":"prenom", "co-nom":"nom", "co-tel":"phone", "co-adresse":"adresse",
+                "co-app":"app", "co-ville":"city", "co-cp":"cp" };
+    Object.keys(pre).forEach(function(id){
+      var el = document.getElementById(id);
+      if(el && cust[pre[id]]) el.value = cust[pre[id]];
+    });
+
+    function val(id){ return document.getElementById(id).value.trim(); }
+    function setErr(id, msg){
+      var e = document.getElementById(id+"-err"), i = document.getElementById(id);
+      if(e) e.textContent = msg || "";
+      if(i) i.classList.toggle("is-invalid", !!msg);
+    }
+    document.getElementById("co-form").addEventListener("submit", function(ev){
+      ev.preventDefault();
+      var ok = true;
+      ["co-nom","co-tel","co-adresse","co-ville"].forEach(function(id){ setErr(id,""); });
+      if(!val("co-nom")){ setErr("co-nom","Merci d'indiquer votre nom."); ok = false; }
+      var digits = val("co-tel").replace(/\D/g,"");
+      if(digits.length < 8){ setErr("co-tel","Un numéro de téléphone valide est nécessaire pour la livraison."); ok = false; }
+      if(!val("co-adresse")){ setErr("co-adresse","Merci d'indiquer votre adresse."); ok = false; }
+      if(!val("co-ville")){ setErr("co-ville","Merci d'indiquer votre ville."); ok = false; }
+      if(!ok){
+        var first = document.querySelector(".co-input.is-invalid");
+        if(first) first.focus();
+        return;
+      }
+      saveCustomer({ prenom: val("co-prenom"), nom: val("co-nom"), phone: val("co-tel"),
+        adresse: val("co-adresse"), app: val("co-app"), city: val("co-ville"), cp: val("co-cp") });
+      var btn = document.getElementById("co-submit");
+      btn.disabled = true; btn.textContent = "Envoi de votre commande…";
+      var payload = {
+        items: cart.map(function(i){ return { id:i.id, size:i.size, qty:i.qty }; }),
+        customer: {
+          name: (val("co-prenom")+" "+val("co-nom")).trim(),
+          phone: val("co-tel"),
+          city: val("co-ville"),
+          address: val("co-adresse") + (val("co-app") ? ", "+val("co-app") : "") + (val("co-cp") ? " — "+val("co-cp") : ""),
+          note: val("co-note")
+        }
+      };
+      fetch(API_BASE + "/api/orders", {
+        method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload)
+      }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }); })
+        .then(function(res){
+          if(!res.ok) throw new Error(res.j && res.j.error ? res.j.error : "Une erreur est survenue.");
+          var summary = payload; // keep customer for the confirmation screen
+          cart = []; save(); syncCartUI();
+          renderConfirmation(root, res.j, summary.customer, sub, fee);
+          window.scrollTo(0, 0);
+        })
+        .catch(function(e){
+          btn.disabled = false; btn.textContent = "Valider la commande";
+          document.getElementById("co-global-err").textContent =
+            (e && e.message ? e.message : "Impossible d'envoyer la commande.") + " Vérifiez votre connexion et réessayez.";
+        });
+    });
+  }
+  function renderConfirmation(root, resp, cust, sub, fee){
+    var first = (cust.name || "").split(" ")[0];
+    root.innerHTML =
+      '<div class="wrap co-confirm">'
+      + '<p class="co-confirm__no">✓ &nbsp;Confirmation n° '+esc(resp.id || "")+'</p>'
+      + '<h1 class="co-h1">Merci'+(first ? ", "+esc(first) : "")+' !</h1>'
+      + '<div class="co-confirm__band"><strong>Votre commande est bien enregistrée.</strong>'
+      + '<span>Nous vous appellerons très vite au '+esc(cust.phone)+' pour la confirmer.</span></div>'
+      + '<div class="co-confirm__grid">'
+      + '<div><h3>Coordonnées</h3><p>'+esc(cust.name)+'<br>'+esc(cust.phone)+'</p></div>'
+      + '<div><h3>Moyen de paiement</h3><p>💵 Paiement à la livraison — '+money(resp.total || (sub+fee))+'</p></div>'
+      + '<div><h3>Adresse de livraison</h3><p>'+esc(cust.address)+'<br>'+esc(cust.city)+'</p></div>'
+      + '<div><h3>Mode d\'expédition</h3><p>Livraison à domicile — '+((resp.fee===0)?'offerte':money(resp.fee!==undefined?resp.fee:fee))+'</p></div>'
+      + '</div>'
+      + '<p class="co-confirm__help">Une question ? <a href="'+waLink("Bonjour MIRACLE 🌸, j'ai une question sur ma commande "+(resp.id||""))+'" target="_blank" rel="noopener">Écrivez-nous sur WhatsApp</a>.</p>'
+      + '<p style="margin-top:1.6rem"><a class="btn" href="index.html">Retour à la boutique</a></p>'
+      + '</div>';
+  }
+
+  /* ------------------------------------------------------------------ */
   /* 9. BOOT — load the live catalog first, fall back to the built-in   */
   /* ------------------------------------------------------------------ */
   var CATALOG_KEY = "miracle_catalog_v1";
-  function applyCatalog(list){
+  var SHOP = { deliveryFee: 8, freeShippingAbove: null };
+  function applyCatalog(list, shop){
+    if(shop && typeof shop.deliveryFee === "number") SHOP = shop;
     if(!list || !list.length) return;
     PRODUCTS.length = 0;
     list.forEach(function(p){ PRODUCTS.push(p); });
@@ -755,8 +863,8 @@
       .then(function(r){ if(!r.ok) throw 0; return r.json(); })
       .then(function(j){
         if(j && j.products && j.products.length){
-          try { sessionStorage.setItem(CATALOG_KEY, JSON.stringify({ at: Date.now(), products: j.products })); } catch(e){}
-          return j.products;
+          try { sessionStorage.setItem(CATALOG_KEY, JSON.stringify({ at: Date.now(), products: j.products, shop: j.shop })); } catch(e){}
+          return j;
         }
         throw 0;
       });
@@ -767,7 +875,7 @@
     var cached = null;
     try { cached = JSON.parse(sessionStorage.getItem(CATALOG_KEY)); } catch(e){}
     if(cached && cached.products && cached.products.length){
-      applyCatalog(cached.products);
+      applyCatalog(cached.products, cached.shop);
       fetchCatalog().catch(function(){}); // refresh for the next page
       return Promise.resolve();
     }
@@ -775,7 +883,7 @@
       var done = false;
       var t = setTimeout(function(){ if(!done){ done = true; resolve(); } }, 8000);
       fetchCatalog()
-        .then(applyCatalog)
+        .then(function(j){ applyCatalog(j.products, j.shop); })
         .catch(function(){})
         .then(function(){ clearTimeout(t); if(!done){ done = true; resolve(); } });
     });
@@ -787,6 +895,7 @@
     syncCartUI();
     initPLP();
     initPDP();
+    initCheckout();
     initHomeCarousel();
     initJournal();
     initAccordions();

@@ -49,19 +49,31 @@
 
   function tvaCardHtml(s) {
     var pct = Math.round(((s.tvaRate) || 0) * 1000) / 10;
+    var fee = typeof s.deliveryFee === "number" ? s.deliveryFee : 8;
+    var free = typeof s.freeShippingAbove === "number" ? s.freeShippingAbove : "";
     return (
       '<div class="a-card">' +
         '<div class="a-card__head">' +
-          '<h2 class="a-title">TVA</h2>' +
+          '<h2 class="a-title">TVA &amp; Livraison</h2>' +
         '</div>' +
+        '<div class="a-form-grid">' +
         '<div class="a-field">' +
           '<label class="a-label" for="set-tva">Taux de TVA (%)</label>' +
           '<input class="a-input" type="number" id="set-tva" min="0" max="50" step="0.1" value="' + pct + '" />' +
         '</div>' +
+        '<div class="a-field">' +
+          '<label class="a-label" for="set-fee">Frais de livraison (TND)</label>' +
+          '<input class="a-input" type="number" id="set-fee" min="0" max="100" step="0.5" value="' + fee + '" />' +
+        '</div>' +
+        '<div class="a-field a-field--full">' +
+          '<label class="a-label" for="set-free">Livraison offerte à partir de (TND)</label>' +
+          '<input class="a-input" type="number" id="set-free" min="0" step="1" value="' + free + '" placeholder="Laisser vide pour désactiver" />' +
+        '</div>' +
+        '</div>' +
         '<div class="a-actions" style="margin-top:.4rem">' +
           '<button class="a-btn a-btn--ghost a-btn--sm" type="button" id="tva-submit">Enregistrer</button>' +
         '</div>' +
-        '<p class="a-hint">19 % en Tunisie pour les assujetties. Laissez 0 si la boutique n\'est pas assujettie (régime forfaitaire) — les montants TVA disparaissent alors du tableau de bord. Les prix restent TTC.</p>' +
+        '<p class="a-hint">TVA : 19 % en Tunisie pour les assujetties — laissez 0 sinon (régime forfaitaire), les montants TVA disparaissent alors des rapports. Les frais de livraison s\'ajoutent automatiquement au total de chaque commande passée sur la boutique.</p>' +
       '</div>'
     );
   }
@@ -96,7 +108,7 @@
       "Le stock se décompte automatiquement dès qu’une commande passe au statut Confirmée.",
       "Traiter une commande : faites-la avancer Nouvelle → Confirmée → Expédiée → Livrée.",
       "Chaque commande propose des messages WhatsApp prêts à envoyer au client.",
-      "Livraison : assignez une société, un livreur et un numéro de suivi à chaque commande.",
+      "Livraison : chaque commande contient les coordonnées complètes de la cliente (téléphone, ville, adresse).",
       "Statistiques : consultez des rapports par période et exportez-les en CSV.",
       "Calculateur : estimez la rentabilité d’une campagne avant de la lancer."
     ];
@@ -155,15 +167,21 @@
   function bindTvaForm(el) {
     var btn = el.querySelector("#tva-submit");
     var input = el.querySelector("#set-tva");
+    var feeInput = el.querySelector("#set-fee");
+    var freeInput = el.querySelector("#set-free");
 
     btn.addEventListener("click", function () {
       var v = parseFloat(input.value);
       if (isNaN(v) || v < 0 || v > 50) { ADMIN.toast("Veuillez saisir un taux compris entre 0 et 50 %.", "err"); return; }
+      var fee = parseFloat(feeInput.value);
+      if (isNaN(fee) || fee < 0 || fee > 100) { ADMIN.toast("Frais de livraison invalides (0 à 100 TND).", "err"); return; }
+      var free = freeInput.value.trim() === "" ? null : parseFloat(freeInput.value);
+      if (free !== null && (isNaN(free) || free < 0)) { ADMIN.toast("Seuil de livraison gratuite invalide.", "err"); return; }
 
       btn.disabled = true;
-      ADMIN.api("/api/settings", { method: "PUT", body: { tvaRate: v / 100 } })
+      ADMIN.api("/api/settings", { method: "PUT", body: { tvaRate: v / 100, deliveryFee: fee, freeShippingAbove: free } })
         .then(function () { return ADMIN.loadSettings(true); })
-        .then(function () { ADMIN.toast("Taux de TVA mis à jour.", "ok"); })
+        .then(function () { ADMIN.toast("Paramètres enregistrés. La boutique les applique en moins d'une minute.", "ok"); })
         .catch(function (e) { ADMIN.toast(e.message, "err"); })
         .finally(function () { btn.disabled = false; });
     });

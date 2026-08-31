@@ -11,8 +11,8 @@
 
   var modules = {};
   var currentRoute = "";
-  var state = { products: null, orders: null, companies: null, journal: null, settings: null };
-  var loadedAt = { products: 0, orders: 0, companies: 0, journal: 0, settings: 0 };
+  var state = { products: null, orders: null, journal: null, settings: null };
+  var loadedAt = { products: 0, orders: 0, journal: 0, settings: 0 };
   var CACHE_MS = 30000;
 
   /* ---------------- api ---------------- */
@@ -48,7 +48,7 @@
   }
   var loadProducts = makeLoader("products", "/api/products", "products");
   var loadOrders = makeLoader("orders", "/api/orders", "orders");
-  var loadCompanies = makeLoader("companies", "/api/companies", "companies");
+  var loadCompanies = function () { return Promise.resolve([]); }; // livraison retirée
   var loadJournal = makeLoader("journal", "/api/journal?all=1", "articles");
   var loadSettings = makeLoader("settings", "/api/settings", "settings");
 
@@ -260,7 +260,7 @@
   function logout() {
     token = "";
     try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-    state = { products: null, orders: null, companies: null, journal: null };
+    state = { products: null, orders: null, journal: null };
     showLogin();
   }
 
@@ -292,7 +292,7 @@
 
     document.getElementById("logout-btn").addEventListener("click", logout);
     document.getElementById("refresh-btn").addEventListener("click", function () {
-      loadedAt = { products: 0, orders: 0, companies: 0, journal: 0 };
+      loadedAt = { products: 0, orders: 0, journal: 0 };
       rerender(); refreshCounts();
       toast("Données actualisées.", "ok");
     });

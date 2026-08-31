@@ -1,7 +1,7 @@
 /* =====================================================================
    MIRACLE — module Statistiques (statistiques.js)
    Rapports périodiques : CA, TVA, statuts, top produits/villes,
-   performance des sociétés de livraison, export CSV.
+   export CSV.
    Voir .design/ADMIN-CONTRACT.md.
    ===================================================================== */
 (function () {
@@ -205,57 +205,6 @@
     );
   }
 
-  /* ---------------- Performance des sociétés de livraison ---------------- */
-  function buildCompanyPerfCard(orders, companies) {
-    var byId = {};
-    companies.forEach(function (c) { byId[c.id] = c; });
-
-    var groups = {};
-    orders.forEach(function (o) {
-      var d = o.delivery || {};
-      var cid = d.companyId;
-      if (!cid) return; // unassigned orders excluded
-      if (!groups[cid]) {
-        var known = byId[cid];
-        groups[cid] = {
-          name: (known && known.name) || d.companyName || cid,
-          enCours: 0, livrees: 0, retours: 0, valeurLivree: 0
-        };
-      }
-      var g = groups[cid];
-      if (o.status === "confirmee" || o.status === "en_preparation" || o.status === "expediee") g.enCours++;
-      if (o.status === "livree") { g.livrees++; g.valeurLivree += num(o.total); }
-      if (o.status === "retour") g.retours++;
-    });
-
-    var list = Object.keys(groups).map(function (k) { return groups[k]; })
-      .sort(function (a, b) { return b.valeurLivree - a.valeurLivree || b.livrees - a.livrees; });
-
-    var body;
-    if (!list.length) {
-      body = '<div class="a-empty">Aucune commande n’a été confiée à une société de livraison sur cette période.</div>';
-    } else {
-      var rows = list.map(function (g) {
-        return (
-          '<tr><td class="a-strong">' + ADMIN.esc(g.name) + '</td>' +
-          '<td class="num">' + g.enCours + '</td>' +
-          '<td class="num">' + g.livrees + '</td>' +
-          '<td class="num">' + g.retours + '</td>' +
-          '<td class="num">' + ADMIN.money(g.valeurLivree) + '</td></tr>'
-        );
-      }).join("");
-      body =
-        '<div class="a-scroll"><table class="a-table"><thead><tr>' +
-        '<th>Société</th><th class="num">En cours</th><th class="num">Livrées</th>' +
-        '<th class="num">Retours</th><th class="num">Valeur livrée</th>' +
-        '</tr></thead><tbody>' + rows + '</tbody></table></div>';
-    }
-
-    return (
-      '<div class="a-card"><div class="a-card__head"><h2 class="a-title">Performance des sociétés de livraison</h2></div>' + body + '</div>'
-    );
-  }
-
   /* ---------------- CSV export ---------------- */
   function csvField(v) {
     var s = String(v === undefined || v === null ? "" : v);
@@ -264,19 +213,14 @@
   }
   function csvRow(fields) { return fields.map(csvField).join(";"); }
 
-  function exportCsv(orders, companies) {
-    var byId = {};
-    companies.forEach(function (c) { byId[c.id] = c; });
-
+  function exportCsv(orders) {
     var header = ["N°", "Date", "Statut", "Source", "Cliente", "Téléphone", "Ville", "Articles",
-      "Total TND", "TVA TND", "Société", "Livreur", "Frais", "Payée"];
+      "Total TND", "TVA TND", "Frais", "Payée"];
 
     var lines = [csvRow(header)];
     orders.forEach(function (o) {
       var customer = o.customer || {};
       var d = o.delivery || {};
-      var known = d.companyId ? byId[d.companyId] : null;
-      var companyName = d.companyId ? ((known && known.name) || d.companyName || "") : "";
       lines.push(csvRow([
         o.id,
         ADMIN.fmtDate(o.createdAt),
@@ -288,8 +232,6 @@
         itemsSummary(o),
         num(o.total).toFixed(2),
         ADMIN.tvaPart(o.total).toFixed(2),
-        companyName,
-        d.personName || "",
         d.fee === null || d.fee === undefined ? "" : num(d.fee).toFixed(2),
         o.paid ? "Oui" : "Non"
       ]));
@@ -314,9 +256,8 @@
     icon: ICON,
     order: 4,
     render: function (el) {
-      return Promise.all([ADMIN.loadOrders(), ADMIN.loadProducts(), ADMIN.loadCompanies()]).then(function (res) {
+      return Promise.all([ADMIN.loadOrders(), ADMIN.loadProducts()]).then(function (res) {
         var orders = res[0] || [];
-        var companies = res[2] || [];
 
         el.innerHTML =
           '<div class="a-card">' +
@@ -345,13 +286,12 @@
           bodyEl.innerHTML =
             buildKpis(periodOrders) +
             buildStatusBars(periodOrders) +
-            '<div class="a-split">' + buildTopItemsCard(periodOrders) + buildTopVillesCard(periodOrders) + '</div>' +
-            buildCompanyPerfCard(periodOrders, companies);
+            '<div class="a-split">' + buildTopItemsCard(periodOrders) + buildTopVillesCard(periodOrders) + '</div>';
         }
 
         periodSel.addEventListener("change", renderBody);
         exportBtn.addEventListener("click", function () {
-          exportCsv(filterByPeriod(orders, periodSel.value), companies);
+          exportCsv(filterByPeriod(orders, periodSel.value));
         });
 
         renderBody();

@@ -21,6 +21,31 @@ async function saveOrder(order) {
   await L.writeDoc(PREFIX + order.id, order, { encrypt: true });
   return order;
 }
+/* WhatsApp alert to the owner via CallMeBot (free, opt-in from her own phone).
+   No-ops until NOTIFY_WA_PHONE + NOTIFY_WA_APIKEY env vars are set. */
+async function notifyOwner(order) {
+  const phone = process.env.NOTIFY_WA_PHONE, key = process.env.NOTIFY_WA_APIKEY;
+  if (!phone || !key) return;
+  const c = order.customer || {};
+  const msg = "🛍️ Nouvelle commande MIRACLE " + order.id + "\n"
+    + order.items.map(function (it) {
+        return "• " + it.qty + "× " + it.title + (it.size ? " (" + it.size + ")" : "");
+      }).join("\n")
+    + "\nTotal : " + order.total + " TND (paiement à la livraison)"
+    + (c.name ? "\nCliente : " + c.name : "")
+    + (c.phone ? "\nTél : " + c.phone : "")
+    + (c.city ? "\nVille : " + c.city : "")
+    + (c.address ? "\nAdresse : " + c.address : "");
+  const url = "https://api.callmebot.com/whatsapp.php?phone=" + encodeURIComponent(phone)
+    + "&apikey=" + encodeURIComponent(key) + "&text=" + encodeURIComponent(msg);
+  try {
+    await Promise.race([
+      fetch(url),
+      new Promise(function (resolve) { setTimeout(resolve, 4000); })
+    ]);
+  } catch (e) {}
+}
+
 async function applyStock(items, dir) {
   const products = await L.readDoc("data/products", null);
   if (!products) return;
@@ -54,18 +79,24 @@ module.exports = async function handler(req, res) {
           qty: Math.min(20, Math.max(1, parseInt(it.qty, 10) || 1)), price: p.price });
       });
       if (!items.length) return L.err(res, 400, "Aucune pièce valide dans le panier.");
+      const itemsTotal = items.reduce(function (n, it) { return n + it.price * it.qty; }, 0);
+      // delivery fee comes from the boutique settings, never from the client
+      const settings = await L.readDoc("data/settings", {});
+      let fee = typeof settings.deliveryFee === "number" ? settings.deliveryFee : 8;
+      if (typeof settings.freeShippingAbove === "number" && itemsTotal >= settings.freeShippingAbove) fee = 0;
       const order = {
         id: L.orderId(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         source: "site", customer: cleanCustomer(body.customer),
         items: items,
-        total: items.reduce(function (n, it) { return n + it.price * it.qty; }, 0),
+        total: itemsTotal + fee,
         status: "nouvelle",
-        delivery: { companyId: "", companyName: "", personName: "", personPhone: "", fee: null, note: "" },
+        delivery: { fee: fee, note: "" },
         paid: false, stockApplied: false, notes: "",
         history: [{ at: new Date().toISOString(), status: "nouvelle" }]
       };
       await saveOrder(order);
-      return L.ok(res, { id: order.id });
+      await notifyOwner(order);
+      return L.ok(res, { id: order.id, total: order.total, fee: fee });
     }
 
     if (!authed) return L.err(res, 401, "Session expirée — reconnectez-vous.");
