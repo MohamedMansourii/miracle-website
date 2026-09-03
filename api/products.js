@@ -13,6 +13,17 @@ async function loadAll() {
   return products;
 }
 
+/* When stock is tracked, EVERY size must have an entry (missing => 0) and no
+   stray keys may remain — otherwise unlisted sizes bypass the stock guard. */
+function completeStock(stock, sizes) {
+  const clean = {};
+  (sizes || []).forEach(function (s) {
+    const v = parseInt(stock[s], 10);
+    clean[s] = isNaN(v) ? 0 : Math.max(0, v);
+  });
+  return Object.keys(clean).length ? clean : null;
+}
+
 function normalize(p, existing) {
   const now = new Date().toISOString();
   const base = existing || { createdAt: now };
@@ -32,12 +43,7 @@ function normalize(p, existing) {
   if (!out.gallery.length && out.img) out.gallery = [out.img];
   out.active = out.active !== false;
   if (out.stock && typeof out.stock === "object") {
-    const clean = {};
-    Object.keys(out.stock).forEach(function (s) {
-      const v = parseInt(out.stock[s], 10);
-      if (!isNaN(v)) clean[s] = Math.max(0, v);
-    });
-    out.stock = Object.keys(clean).length ? clean : null;
+    out.stock = completeStock(out.stock, out.sizes);
   } else out.stock = null;
   out.composition = String(out.composition || "").trim();
   out.updatedAt = now;
@@ -85,6 +91,7 @@ module.exports = async function handler(req, res) {
         if (!p.stock) p.stock = {};
         const cur = parseInt(p.stock[body.size], 10) || 0;
         p.stock[body.size] = Math.max(0, cur + (parseInt(body.delta, 10) || 0));
+        p.stock = completeStock(p.stock, p.sizes); // all sizes get an entry (0 by default)
         p.updatedAt = new Date().toISOString();
         await L.writeDoc(DOC, products);
         return L.ok(res, { product: p });

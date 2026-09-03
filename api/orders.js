@@ -82,7 +82,8 @@ module.exports = async function handler(req, res) {
       });
       if (!items.length) return L.err(res, 400, "Aucune pièce valide dans le panier.");
 
-      /* stock guard — never accept more than what is left (tracked products) */
+      /* stock guard — closed: on a tracked product, EVERY line must name a
+         tracked size, and no line may exceed what is left. */
       const wanted = {}; // "id|size" -> qty across all lines
       items.forEach(function (it) { const k = it.id + "|" + it.size; wanted[k] = (wanted[k] || 0) + it.qty; });
       const shortages = [];
@@ -93,18 +94,23 @@ module.exports = async function handler(req, res) {
         if (!p || !p.stock) return; // stock not tracked -> always orderable
         const totalStock = Object.keys(p.stock).reduce(function (n, s) { return n + (parseInt(p.stock[s], 10) || 0); }, 0);
         if (totalStock === 0) {
-          shortages.push(p.title + " est épuisée pour le moment");
+          shortages.push("« " + p.title + " » est épuisée pour le moment");
           return;
         }
-        if (size && (size in p.stock)) {
-          const avail = parseInt(p.stock[size], 10) || 0;
-          if (wanted[k] > avail) {
-            shortages.push(p.title + " (taille " + size + ") — il ne reste que " + avail + " pièce(s)");
-          }
+        if (!size || !(size in p.stock)) {
+          // sizeless or forged-size line on a tracked product: never let it through
+          shortages.push("merci de choisir une taille pour « " + p.title + " » (ouvrez sa page pour la sélectionner)");
+          return;
+        }
+        const avail = parseInt(p.stock[size], 10) || 0;
+        if (wanted[k] > avail) {
+          shortages.push(avail === 0
+            ? "la taille " + size + " de « " + p.title + " » est épuisée"
+            : "« " + p.title + " » (taille " + size + ") — il ne reste que " + avail + " pièce(s)");
         }
       });
       if (shortages.length) {
-        return L.err(res, 409, "Stock insuffisant : " + shortages.join(" · ") + ". Merci d'ajuster les quantités de votre panier.");
+        return L.err(res, 409, "Stock insuffisant : " + shortages.join(" · ") + ". Merci d'ajuster votre panier.");
       }
       const itemsTotal = items.reduce(function (n, it) { return n + it.price * it.qty; }, 0);
       // delivery fee comes from the boutique settings, never from the client

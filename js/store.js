@@ -509,7 +509,7 @@
       + '<a class="pcard__media" href="product.html?id='+p.id+'">'+badge
       + '<img class="pcard__img pcard__img--front" src="'+p.img+'" alt="'+esc(p.title+' '+p.color)+'" loading="lazy">'
       + '<img class="pcard__img pcard__img--back" src="'+p.img2+'" alt="" aria-hidden="true" loading="lazy">'
-      + (out ? '' : '<button class="pcard__add" data-add="'+p.id+'">Ajouter au panier</button>')+'</a>'
+      + (out ? '' : '<button class="pcard__add" data-add="'+p.id+'">'+(p.sizes && p.sizes.length ? 'Choisir ma taille' : 'Ajouter au panier')+'</button>')+'</a>'
       + '<div class="pcard__body"><a class="pcard__title" href="product.html?id='+p.id+'">'+esc(p.title)+'</a>'
       + '<p class="pcard__color">'+esc(p.color)+'</p><p class="pcard__price">'
       + (p.oldPrice ? '<s class="price-old">'+money(p.oldPrice)+'</s> ' : '')
@@ -518,7 +518,14 @@
   }
   document.addEventListener("click", function(e){
     var add = e.target.closest ? e.target.closest("[data-add]") : null;
-    if(add){ e.preventDefault(); addToCart(add.getAttribute("data-add"), ""); }
+    if(add){
+      e.preventDefault();
+      var p = byId(add.getAttribute("data-add"));
+      if(!p) return;
+      // a piece with sizes needs a size — the product page is where it's chosen
+      if(p.sizes && p.sizes.length){ location.href = "product.html?id=" + p.id; return; }
+      addToCart(p.id, "");
+    }
   });
 
   /* ------------------------------------------------------------------ */
@@ -689,6 +696,17 @@
       addToCart(p.id, chosen, chosenColor);
     });
     root.querySelectorAll(".acc__btn").forEach(function(b){ b.addEventListener("click", function(){ this.parentNode.classList.toggle("is-open"); this.setAttribute("aria-expanded", this.parentNode.classList.contains("is-open")); }); });
+
+    // stock/price truth: if the live catalog lands after render with different
+    // data for this piece, re-render once so épuisé/prix are never stale here
+    if(FRESH && !initPDP._refreshed){
+      var snapshot = JSON.stringify(p);
+      FRESH.then(function(ok){
+        if(!ok || initPDP._refreshed) return;
+        var now = byId(p.id);
+        if(now && JSON.stringify(now) !== snapshot){ initPDP._refreshed = true; initPDP(); }
+      });
+    }
   }
   function accItem(title, inner, open){
     return '<div class="acc'+(open?' is-open':'')+'"><button class="acc__btn" aria-expanded="'+(open?'true':'false')+'">'+esc(title)+'<span class="acc__ic">'+ICON.chev+'</span></button><div class="acc__panel">'+inner+'</div></div>';
@@ -877,6 +895,10 @@
         if(shortage) return;
         var idx2 = k.indexOf("|"), p2 = byId(k.slice(0,idx2)), sz = k.slice(idx2+1);
         if(!p2 || !p2.stock) return;
+        if(!sz || !(sz in p2.stock)){
+          shortage = "Merci de choisir une taille pour « "+p2.title+" » — retirez la pièce du panier puis ajoutez-la depuis sa page.";
+          return;
+        }
         var avail = availFor(p2, sz);
         if(wanted[k] > avail){
           shortage = avail === 0
@@ -941,6 +963,7 @@
   /* ------------------------------------------------------------------ */
   var CATALOG_KEY = "miracle_catalog_v1";
   var SHOP = { deliveryFee: 8, freeShippingAbove: null };
+  var FRESH = null; // resolves true once the LIVE catalog has been applied
   function applyCatalog(list, shop){
     if(shop && typeof shop.deliveryFee === "number") SHOP = shop;
     if(!list || !list.length) return;
@@ -963,18 +986,18 @@
     // it is refreshed in the background on each page view.
     var cached = null;
     try { cached = JSON.parse(sessionStorage.getItem(CATALOG_KEY)); } catch(e){}
+    var live = fetchCatalog()
+      .then(function(j){ applyCatalog(j.products, j.shop); return true; })
+      .catch(function(){ return false; });
+    FRESH = live;
     if(cached && cached.products && cached.products.length){
       applyCatalog(cached.products, cached.shop);
-      fetchCatalog().catch(function(){}); // refresh for the next page
-      return Promise.resolve();
+      return Promise.resolve(); // render now; `live` updates the data in place
     }
     return new Promise(function(resolve){
       var done = false;
       var t = setTimeout(function(){ if(!done){ done = true; resolve(); } }, 8000);
-      fetchCatalog()
-        .then(function(j){ applyCatalog(j.products, j.shop); })
-        .catch(function(){})
-        .then(function(){ clearTimeout(t); if(!done){ done = true; resolve(); } });
+      live.then(function(){ clearTimeout(t); if(!done){ done = true; resolve(); } });
     });
   }
   function boot(){
