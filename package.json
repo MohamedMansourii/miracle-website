@@ -4,6 +4,6 @@
   "private": true,
   "description": "MIRACLE — lingerie faite main a Monastir. Static site + Vercel functions back office.",
   "dependencies": {
-    "@vercel/blob": "^0.27.3"
+    "@netlify/blobs": "^11.0.3"
   }
 }

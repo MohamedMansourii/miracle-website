@@ -36,13 +36,12 @@ module.exports = async function handler(req, res) {
 
     const rawName = String((req.query && req.query.name) || "image");
     const name = L.slugify(rawName.replace(/\.[a-z0-9]+$/i, ""));
-    const pathname = "img/" + Date.now() + "-" + name + "." + ext;
+    const key = "img/" + Date.now() + "-" + name + "-" + L.uid(6) + "." + ext;
 
-    const blob = await L.put(pathname, buf, {
-      access: "public", addRandomSuffix: true, contentType: type,
-      cacheControlMaxAge: 31536000
-    });
-    return L.ok(res, { url: blob.url });
+    await L.rawPut(key, buf, type);
+    // absolute URL so the image also works on the GitHub Pages mirror
+    const base = process.env.URL || "";
+    return L.ok(res, { url: base + "/api/img/" + key });
   } catch (e) {
     return L.err(res, 500, "Erreur serveur : " + (e && e.message ? e.message : "inconnue"));
   }

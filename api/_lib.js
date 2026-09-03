@@ -3,7 +3,18 @@
 "use strict";
 
 const crypto = require("crypto");
-const { put, list, del } = require("@vercel/blob");
+
+/* Netlify Blobs — the database. Lazy dynamic import (the SDK is ESM-only);
+   auth is automatic inside the Netlify runtime, strong consistency requested. */
+let _storePromise = null;
+function getBlobStore() {
+  if (!_storePromise) {
+    _storePromise = import("@netlify/blobs").then(function (m) {
+      return m.getStore({ name: "miracle-db", consistency: "strong" });
+    });
+  }
+  return _storePromise;
+}
 
 const SECRET = process.env.SESSION_SECRET || "dev-only-secret";
 const ENC_KEY = crypto.createHash("sha256").update(SECRET + ":blob-v1").digest();
@@ -88,19 +99,32 @@ function versionOf(pathname) {
   return m ? parseInt(m[1], 10) : 0;
 }
 async function listPrefix(prefix) {
-  const out = [];
-  let cursor;
-  do {
-    const res = await list({ prefix: prefix, limit: 1000, cursor: cursor });
-    out.push.apply(out, res.blobs || []);
-    cursor = res.hasMore ? res.cursor : null;
-  } while (cursor);
-  return out;
+  const store = await getBlobStore();
+  const res = await store.list({ prefix: prefix });
+  return (res.blobs || []).map(function (b) { return { pathname: b.key }; });
 }
 async function fetchDoc(blob) {
-  const r = await fetch(blob.url);
-  if (!r.ok) return undefined;
-  try { return maybeDecJSON(await r.text()); } catch (e) { return undefined; }
+  const store = await getBlobStore();
+  const text = await store.get(blob.pathname, { type: "text" });
+  if (text === null || text === undefined) return undefined;
+  try { return maybeDecJSON(text); } catch (e) { return undefined; }
+}
+/* raw binary helpers (images + migration) */
+function toArrayBuffer(buf) {
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+}
+async function rawPut(key, buf, contentType) {
+  const store = await getBlobStore();
+  await store.set(key, toArrayBuffer(buf), contentType ? { metadata: { contentType: contentType } } : undefined);
+}
+async function rawGet(key) {
+  const store = await getBlobStore();
+  const ab = await store.get(key, { type: "arrayBuffer" });
+  return ab ? Buffer.from(ab) : null;
+}
+async function rawDel(key) {
+  const store = await getBlobStore();
+  await store.delete(key);
 }
 /* prefix is a doc id like "data/products" (no trailing slash / extension) */
 async function readDoc(prefix, fallback) {
@@ -123,23 +147,22 @@ async function readDoc(prefix, fallback) {
 async function writeDoc(prefix, obj, opts) {
   const v = Date.now();
   const body = (opts && opts.encrypt) ? encJSON(obj) : JSON.stringify(obj);
-  await put(prefix + "/v-" + v + "-" + uid(6) + ".json", body, {
-    access: "public", addRandomSuffix: false,
-    contentType: "application/json", cacheControlMaxAge: 31536000
-  });
+  const store = await getBlobStore();
+  await store.set(prefix + "/v-" + v + "-" + uid(6) + ".json", body);
   memCache[prefix] = { v: v, data: obj };
   try { // prune old versions, keep the newest 3
     const blobs = await listPrefix(prefix + "/v-");
     blobs.sort(function (a, b) { return versionOf(b.pathname) - versionOf(a.pathname); });
-    const old = blobs.slice(3).map(function (b) { return b.url; });
-    if (old.length) await del(old);
+    const old = blobs.slice(3);
+    for (const b of old) await store.delete(b.pathname);
   } catch (e) {}
   return obj;
 }
 async function deleteDoc(prefix) {
   const blobs = await listPrefix(prefix + "/v-");
   if (!blobs.length) return false;
-  await del(blobs.map(function (b) { return b.url; }));
+  const store = await getBlobStore();
+  for (const b of blobs) await store.delete(b.pathname);
   delete memCache[prefix];
   return true;
 }
@@ -176,6 +199,7 @@ async function readManyDocs(root, rootRe) {
 
 /* ---------------- http helpers ---------------- */
 const ORIGIN_OK = [
+  /^https:\/\/([a-z0-9-]+--)?miracle-collection-tn\.netlify\.app$/,
   /^https:\/\/miracle-website[a-z0-9-]*\.vercel\.app$/,
   /^https:\/\/mohamedmansourii\.github\.io$/,
   /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
@@ -337,7 +361,7 @@ const DEFAULT_JOURNAL = [
 });
 
 module.exports = {
-  put, list, del,
+  rawPut, rawGet, rawDel,
   signToken, verifyToken, isAuthed, isSuper,
   hashPassword, checkPassword, safeEqual,
   readDoc, writeDoc, deleteDoc, listPrefix, latestPerDoc, readManyDocs, fetchDoc, versionOf,

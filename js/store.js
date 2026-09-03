@@ -16,7 +16,7 @@
   /* Back office API — same origin on Vercel; absolute for the GitHub Pages
      mirror. If the API is unreachable (e.g. plain local server), the site
      falls back to the built-in catalog below. */
-  var API_BASE = /github\.io$/.test(location.hostname) ? "https://miracle-website-eta.vercel.app" : "";
+  var API_BASE = /github\.io$/.test(location.hostname) ? "https://miracle-collection-tn.netlify.app" : "";
 
   /* ------------------------------------------------------------------ */
   /* 1. DATA                                                            */

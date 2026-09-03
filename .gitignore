@@ -4,3 +4,5 @@ AppData/
 .vercel
 .env*
 node_modules/
+.netlify/
+_site/
