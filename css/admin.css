@@ -328,3 +328,6 @@ ul { list-style: none; padding: 0; }
 @media (prefers-reduced-motion: reduce) {
   .a-modal__box, .a-toast, .a-bar i, .side { animation: none; transition: none; }
 }
+
+/* who is logged in */
+.side__who { font-size: .72rem; color: var(--ink-soft); padding: 0 .8rem .5rem; letter-spacing: .04em; }

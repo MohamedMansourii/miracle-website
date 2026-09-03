@@ -5,9 +5,13 @@
    ===================================================================== */
 (function () {
   "use strict";
-  var TOKEN_KEY = "miracle_admin_token";
-  var token = "";
-  try { token = localStorage.getItem(TOKEN_KEY) || ""; } catch (e) {}
+  var TOKEN_KEY = "miracle_admin_token", ROLE_KEY = "miracle_admin_role", NAME_KEY = "miracle_admin_name";
+  var token = "", role = "super", displayName = "";
+  try {
+    token = localStorage.getItem(TOKEN_KEY) || "";
+    role = localStorage.getItem(ROLE_KEY) || "super";
+    displayName = localStorage.getItem(NAME_KEY) || "";
+  } catch (e) {}
 
   var modules = {};
   var currentRoute = "";
@@ -190,6 +194,7 @@
   function renderRoute(route) {
     var def = modules[route];
     if (!def) return;
+    if (def.superOnly && role !== "super") { navigate("dashboard"); return; }
     currentRoute = route;
     document.getElementById("page-title").textContent = def.title;
     document.title = def.title + " — MIRACLE Admin";
@@ -207,7 +212,9 @@
 
   function buildNav() {
     var nav = document.getElementById("side-nav");
-    var keys = Object.keys(modules).sort(function (a, b) { return (modules[a].order || 99) - (modules[b].order || 99); });
+    var keys = Object.keys(modules)
+      .filter(function (k) { return !(modules[k].superOnly && role !== "super"); })
+      .sort(function (a, b) { return (modules[a].order || 99) - (modules[b].order || 99); });
     nav.innerHTML = keys.map(function (k) {
       var d = modules[k];
       return '<button class="side__item" type="button" data-route="' + k + '">' + (d.icon || "") +
@@ -253,13 +260,19 @@
   function showApp() {
     document.getElementById("login").hidden = true;
     document.getElementById("app").hidden = false;
+    buildNav(); // rebuild — visible modules depend on the role
+    var who = document.getElementById("side-who");
+    if (who) {
+      who.textContent = (displayName || "Connectée") + " · " + (role === "super" ? "Super admin" : "Équipe");
+      who.hidden = false;
+    }
     loadSettings().then(function () { renderRoute(routeFromHash()); })
       .catch(function () { renderRoute(routeFromHash()); });
     refreshCounts(true);
   }
   function logout() {
-    token = "";
-    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    token = ""; role = "super"; displayName = "";
+    try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(ROLE_KEY); localStorage.removeItem(NAME_KEY); } catch (e) {}
     state = { products: null, orders: null, journal: null };
     showLogin();
   }
@@ -282,7 +295,13 @@
       btn.disabled = true; msg.textContent = "";
       api("/api/auth", { method: "POST", body: { action: "login", username: user, password: pw } }).then(function (j) {
         token = j.token;
-        try { localStorage.setItem(TOKEN_KEY, token); } catch (e2) {}
+        role = j.role || "super";
+        displayName = j.displayName || user;
+        try {
+          localStorage.setItem(TOKEN_KEY, token);
+          localStorage.setItem(ROLE_KEY, role);
+          localStorage.setItem(NAME_KEY, displayName);
+        } catch (e2) {}
         document.getElementById("login-pw").value = "";
         showApp();
       }).catch(function (err) {
@@ -313,6 +332,7 @@
     loadProducts: loadProducts, loadOrders: loadOrders,
     loadCompanies: loadCompanies, loadJournal: loadJournal, loadSettings: loadSettings,
     register: register, navigate: navigate, rerender: rerender,
+    role: function () { return role; }, isSuper: function () { return role === "super"; },
     toast: toast, modal: modal, confirm: confirmDlg,
     money: money, esc: esc, fmtDate: fmtDate, uid: uid,
     tvaRate: tvaRate, tvaPart: tvaPart,

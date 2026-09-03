@@ -147,7 +147,7 @@
   ADMIN.register("calculateur", {
     title: "Calculateur",
     icon: ICON,
-    order: 6,
+    order: 5,
     render: function (el) {
       el.innerHTML = cardHtml();
       el.addEventListener("click", function (e) {

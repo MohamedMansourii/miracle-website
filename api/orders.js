@@ -75,10 +75,37 @@ module.exports = async function handler(req, res) {
       rawItems.forEach(function (it) {
         const p = products.find(function (x) { return x.id === it.id && x.active !== false; });
         if (!p) return;
-        items.push({ id: p.id, title: p.title, color: p.color, size: String(it.size || ""),
+        const chosen = String(it.color || "").trim().slice(0, 40);
+        items.push({ id: p.id, title: p.title,
+          color: chosen || p.color, size: String(it.size || ""),
           qty: Math.min(20, Math.max(1, parseInt(it.qty, 10) || 1)), price: p.price });
       });
       if (!items.length) return L.err(res, 400, "Aucune pièce valide dans le panier.");
+
+      /* stock guard — never accept more than what is left (tracked products) */
+      const wanted = {}; // "id|size" -> qty across all lines
+      items.forEach(function (it) { const k = it.id + "|" + it.size; wanted[k] = (wanted[k] || 0) + it.qty; });
+      const shortages = [];
+      Object.keys(wanted).forEach(function (k) {
+        const idx = k.indexOf("|");
+        const pid = k.slice(0, idx), size = k.slice(idx + 1);
+        const p = products.find(function (x) { return x.id === pid; });
+        if (!p || !p.stock) return; // stock not tracked -> always orderable
+        const totalStock = Object.keys(p.stock).reduce(function (n, s) { return n + (parseInt(p.stock[s], 10) || 0); }, 0);
+        if (totalStock === 0) {
+          shortages.push(p.title + " est épuisée pour le moment");
+          return;
+        }
+        if (size && (size in p.stock)) {
+          const avail = parseInt(p.stock[size], 10) || 0;
+          if (wanted[k] > avail) {
+            shortages.push(p.title + " (taille " + size + ") — il ne reste que " + avail + " pièce(s)");
+          }
+        }
+      });
+      if (shortages.length) {
+        return L.err(res, 409, "Stock insuffisant : " + shortages.join(" · ") + ". Merci d'ajuster les quantités de votre panier.");
+      }
       const itemsTotal = items.reduce(function (n, it) { return n + it.price * it.qty; }, 0);
       // delivery fee comes from the boutique settings, never from the client
       const settings = await L.readDoc("data/settings", {});
@@ -170,6 +197,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (req.method === "DELETE") {
+      if (!L.isSuper(req)) return L.err(res, 403, "Seul le super admin peut supprimer une commande.");
       const id = String((req.query && req.query.id) || "");
       const found = await L.deleteDoc(PREFIX + id);
       if (!found) return L.err(res, 404, "Commande introuvable.");

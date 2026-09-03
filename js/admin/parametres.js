@@ -193,6 +193,7 @@
     title: "Paramètres",
     icon: ICON,
     order: 8,
+    superOnly: true,
     render: function (el) {
       return ADMIN.loadSettings().then(function () {
         var s = ADMIN.state.settings || {};

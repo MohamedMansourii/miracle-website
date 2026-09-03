@@ -26,6 +26,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (req.method === "PUT") {
+      if (!L.isSuper(req)) return L.err(res, 403, "Réservé au super admin.");
       const body = req.body || {};
       if (body.tvaRate !== undefined) {
         const r = Number(body.tvaRate);

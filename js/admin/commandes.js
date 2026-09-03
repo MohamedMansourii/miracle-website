@@ -202,7 +202,7 @@
       historyHtml;
 
     var footer =
-      '<button class="a-btn a-btn--danger a-btn--sm" id="dm-delete" type="button">Supprimer</button>' +
+      (ADMIN.isSuper() ? '<button class="a-btn a-btn--danger a-btn--sm" id="dm-delete" type="button">Supprimer</button>' : '') +
       '<button class="a-btn a-btn--ghost a-btn--sm" id="dm-close" type="button">Fermer</button>';
 
     var m = ADMIN.modal({ title: o.id, wide: true, body: body, footer: footer });
@@ -258,7 +258,7 @@
       }).catch(function (e2) { ADMIN.toast(e2.message, "err"); });
     });
 
-    m.el.querySelector("#dm-delete").addEventListener("click", function () {
+    if (m.el.querySelector("#dm-delete")) m.el.querySelector("#dm-delete").addEventListener("click", function () {
       ADMIN.confirm("Supprimer définitivement la commande " + o.id + " ?").then(function (ok) {
         if (!ok) return;
         ADMIN.api("/api/orders?id=" + encodeURIComponent(o.id), { method: "DELETE" }).then(function () {

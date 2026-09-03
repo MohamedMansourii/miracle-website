@@ -9,10 +9,10 @@ const SECRET = process.env.SESSION_SECRET || "dev-only-secret";
 const ENC_KEY = crypto.createHash("sha256").update(SECRET + ":blob-v1").digest();
 const TOKEN_TTL_MS = 7 * 24 * 3600 * 1000;
 
-/* ---------------- tokens (HMAC-signed, stateless) ---------------- */
+/* ---------------- tokens (HMAC-signed, stateless, role-carrying) ------ */
 function b64u(buf) { return Buffer.from(buf).toString("base64url"); }
-function signToken() {
-  const payload = b64u(JSON.stringify({ exp: Date.now() + TOKEN_TTL_MS }));
+function signToken(extra) {
+  const payload = b64u(JSON.stringify(Object.assign({ exp: Date.now() + TOKEN_TTL_MS, role: "super" }, extra || {})));
   const sig = crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
   return payload + "." + sig;
 }
@@ -22,12 +22,23 @@ function verifyToken(token) {
   const expect = crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
   const a = Buffer.from(sig || ""), b = Buffer.from(expect);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
-  try { return JSON.parse(Buffer.from(payload, "base64url").toString()).exp > Date.now(); }
-  catch (e) { return false; }
+  try {
+    const p = JSON.parse(Buffer.from(payload, "base64url").toString());
+    if (!(p.exp > Date.now())) return false;
+    if (!p.role) p.role = "super"; // pre-role tokens belonged to the owner
+    return p;
+  } catch (e) { return false; }
 }
+/* returns the token payload ({role, email?, exp}) or false — truthy check
+   keeps every existing `if (!L.isAuthed(req))` guard working unchanged */
 function isAuthed(req) {
   const h = req.headers.authorization || "";
-  return h.startsWith("Bearer ") && verifyToken(h.slice(7));
+  if (!h.startsWith("Bearer ")) return false;
+  return verifyToken(h.slice(7));
+}
+function isSuper(req) {
+  const p = isAuthed(req);
+  return !!(p && p.role === "super");
 }
 
 /* ---------------- password hashing (scrypt) ---------------- */
@@ -327,7 +338,7 @@ const DEFAULT_JOURNAL = [
 
 module.exports = {
   put, list, del,
-  signToken, verifyToken, isAuthed,
+  signToken, verifyToken, isAuthed, isSuper,
   hashPassword, checkPassword, safeEqual,
   readDoc, writeDoc, deleteDoc, listPrefix, latestPerDoc, readManyDocs, fetchDoc, versionOf,
   cors, ok, err, uid, orderId, slugify,

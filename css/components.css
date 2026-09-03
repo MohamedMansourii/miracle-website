@@ -414,3 +414,14 @@ textarea.co-input { min-height: 80px; resize: vertical; }
   .co-grid { grid-template-columns: 1fr; }
   .co-confirm__grid { grid-template-columns: 1fr; }
 }
+
+/* ---------------- Stock states & color choice (variants) ---------------- */
+.pc-badge--out { background: var(--ink); color: var(--ivory); }
+.pcard.is-soldout .pcard__img { opacity: .55; filter: saturate(.6); }
+.pdp__soldout { font-size: .86rem; color: var(--ink-soft); margin-top: .6rem; }
+.pdp__add[disabled] { opacity: .5; cursor: not-allowed; }
+.pdp__colors { margin-bottom: 1rem; }
+.cart__stockmsg {
+  margin: .7rem 1.3rem 0; padding: .6rem .8rem; font-size: .82rem;
+  background: #F0DDD8; color: #A94436; border-left: 3px solid #A94436; border-radius: 2px;
+}

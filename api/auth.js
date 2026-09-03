@@ -21,18 +21,36 @@ module.exports = async function handler(req, res) {
       const user = String(body.username || "").trim();
       if (!pw || !user) return L.err(res, 400, "Nom d'utilisateur et mot de passe requis.");
       const settings = await L.readDoc("data/settings", {});
+
+      // 1) super admin (the owner)
       const expectedUser = settings.username || process.env.ADMIN_USERNAME || "MiracleAdmin";
       const userOk = L.safeEqual(user.toLowerCase(), String(expectedUser).toLowerCase());
       const pwOk = settings.passwordHash
         ? L.checkPassword(pw, settings.passwordHash)
         : L.safeEqual(pw, process.env.ADMIN_PASSWORD || "");
-      if (!userOk || !pwOk) return L.err(res, 401, "Identifiants incorrects.");
-      attempts.set(ip, []);
-      return L.ok(res, { token: L.signToken() });
+      if (userOk && pwOk) {
+        attempts.set(ip, []);
+        return L.ok(res, { token: L.signToken({ role: "super" }), role: "super", displayName: expectedUser });
+      }
+
+      // 2) sub-admin (staff) — logs in with their e-mail
+      const team = await L.readDoc("data/team", []);
+      const member = team.find(function (m) {
+        return m.active !== false && m.email && m.email.toLowerCase() === user.toLowerCase();
+      });
+      if (member && L.checkPassword(pw, member.passwordHash)) {
+        attempts.set(ip, []);
+        return L.ok(res, {
+          token: L.signToken({ role: "staff", email: member.email }),
+          role: "staff", displayName: member.name || member.email
+        });
+      }
+      return L.err(res, 401, "Identifiants incorrects.");
     }
 
     if (body.action === "change") {
       if (!L.isAuthed(req)) return L.err(res, 401, "Session expirée — reconnectez-vous.");
+      if (!L.isSuper(req)) return L.err(res, 403, "Réservé au super admin.");
       const settings = await L.readDoc("data/settings", {});
       const currentOk = settings.passwordHash
         ? L.checkPassword(String(body.current || ""), settings.passwordHash)
